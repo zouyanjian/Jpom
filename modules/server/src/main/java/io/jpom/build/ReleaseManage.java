@@ -2,6 +2,7 @@ package io.jpom.build;
 
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.RuntimeUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.extra.ssh.Sftp;
 import cn.hutool.http.HttpStatus;
@@ -19,7 +20,6 @@ import io.jpom.outgiving.OutGivingRun;
 import io.jpom.service.node.NodeService;
 import io.jpom.service.node.ssh.SshService;
 import io.jpom.system.JpomRuntimeException;
-
 import java.io.File;
 import java.util.List;
 import java.util.Objects;
@@ -99,6 +99,8 @@ public class ReleaseManage extends BaseBuild {
                 this.doProject(afterOpt, this.baseBuildModule.isClearOld());
             } else if (this.baseBuildModule.getReleaseMethod() == BuildModel.ReleaseMethod.Ssh.getCode()) {
                 this.doSsh();
+            }else if (this.baseBuildModule.getReleaseMethod() == BuildModel.ReleaseMethod.Rsync.getCode()) {
+                this.doRsync();
             } else {
                 this.log(" 没有实现的发布分发");
             }
@@ -113,10 +115,39 @@ public class ReleaseManage extends BaseBuild {
     /**
      * 修改为发布中状态
      */
-    public void start() {
+    public void start() throws Exception {
         updateStatus(BuildModel.Status.PubIng);
         this.start2();
     }
+
+
+
+
+    private void doRsync() throws Exception {
+        RSync rsync = new RSync()
+                .recursive(true)
+                .times(true)
+                .dirs(true)
+                .verbose(true)
+                ;
+            if (this.resultFile.isFile()) {
+                // 文件
+                try {
+                    rsync
+                    .source(resultFile.getAbsoluteFile().getAbsolutePath())
+                            .destination(StrUtil.format("rsync://{}:{}/files/",this.baseBuildModule.getRsyncIp(),this.baseBuildModule.getRsyncPort()));
+                    rsync.doRsync(rsync);
+                } catch (Exception ignored) {
+                }
+            } else if (this.resultFile.isDirectory()) {
+                //多个文件上传逻辑 现在测试只传一个
+              /*  rsync
+                        .sources()
+                        .destination(StrUtil.format("rsync://{}:{}/files/",this.baseBuildModule.getRsyncIp(),this.baseBuildModule.getRsyncPort()));
+                rsync.doRsync(rsync);*/
+            }
+    }
+
 
     private void doSsh() {
         String releaseMethodDataId = this.baseBuildModule.getReleaseMethodDataId();

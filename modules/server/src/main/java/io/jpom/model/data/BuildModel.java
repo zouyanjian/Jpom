@@ -61,6 +61,7 @@ public class BuildModel extends BaseBuildModule {
      */
     private String group;
 
+
     public String getTriggerToken() {
         return triggerToken;
     }
@@ -205,6 +206,7 @@ public class BuildModel extends BaseBuildModule {
         Outgiving(1, "节点分发"),
         Project(2, "项目"),
         Ssh(3, "SSH"),
+        Rsync(4, "RSYNC"),
         ;
         private int code;
         private String desc;

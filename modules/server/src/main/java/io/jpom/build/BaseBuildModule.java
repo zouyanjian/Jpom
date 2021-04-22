@@ -49,6 +49,17 @@ public class BaseBuildModule extends BaseModel {
      */
     private String releasePath;
 
+    /**
+     * 发布到Rsync中的ip地址
+     */
+    private String rsyncIp;
+
+    /**
+     * 发布到Rsync中的端口
+     */
+    private String rsyncPort;
+
+
     public String getReleasePath() {
         return releasePath;
     }
@@ -106,5 +117,21 @@ public class BaseBuildModule extends BaseModel {
 
     public void setResultDirFile(String resultDirFile) {
         this.resultDirFile = resultDirFile;
+    }
+
+    public String getRsyncIp() {
+        return rsyncIp;
+    }
+
+    public void setRsyncIp(String rsyncIp) {
+        this.rsyncIp = rsyncIp;
+    }
+
+    public String getRsyncPort() {
+        return rsyncPort;
+    }
+
+    public void setRsyncPort(String rsyncPort) {
+        this.rsyncPort = rsyncPort;
     }
 }

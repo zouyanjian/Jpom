@@ -76,6 +76,8 @@ export function editBuild(params) {
     releaseMethodDataId_3: params.releaseMethodDataId_3,
     releasePath: params.releasePath,
     releaseCommand: params.releaseCommand,
+    rsyncIp: params.rsyncIp,
+    rsyncPort: params.rsyncPort,
     clearOld: params.clearOld,
   }
   return axios({

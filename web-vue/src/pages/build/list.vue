@@ -113,6 +113,7 @@
             <a-radio :value="1">节点分发</a-radio>
             <a-radio :value="2">项目</a-radio>
             <a-radio :value="3">SSH</a-radio>
+            <a-radio :value="4">rsync测试</a-radio>
           </a-radio-group>
         </a-form-model-item>
         <!-- 节点分发 -->
@@ -141,6 +142,18 @@
         </a-form-model-item>
         <a-form-model-item v-if="temp.releaseMethod === 3" label="发布命令" prop="releaseCommand">
           <a-input v-model="temp.releaseCommand" type="textarea" :rows="3" style="resize: none;" placeholder="发布执行的命令，如：mvn clean package"/>
+        </a-form-model-item>
+
+
+        <!-- RSYNC -->
+        <a-form-model-item v-if="temp.releaseMethod === 4"   label="上传地址" >
+          <a-form-model-item has-feedback prop="rsyncIp" :style="{ display: 'inline-block', width: 'calc(70% - 12px)' }">
+            <a-input v-model="temp.rsyncIp"   placeholder="ip"/>
+          </a-form-model-item>
+          <span :style="{ display: 'inline-block', width: '24px', textAlign: 'center' }">:</span>
+          <a-form-model-item has-feedback prop="rsyncPort" :style="{ display: 'inline-block', width: 'calc(30% - 12px)' }" >
+            <a-input v-model="temp.rsyncPort" placeholder="端口" maxLength="5" minLength="1"/>
+          </a-form-model-item>
         </a-form-model-item>
         <a-form-model-item v-if="temp.releaseMethod === 2 || temp.releaseMethod === 3" label="清空发布" prop="clearOld">
           <a-switch v-model="temp.clearOld" checked-children="是" un-checked-children="否"/>
@@ -230,6 +243,14 @@ export default {
         ],
         releasePath: [
           { required: true, message: 'Please input release path', trigger: 'blur' }
+        ],
+        rsyncIp: [
+          { required: true, message: 'Please input Host Ip', trigger: 'blur' },
+          { pattern: new RegExp("^((2[0-4]\\d|25[0-5]|[01]?\\d\\d?)\\.){3}(2[0-4]\\d|25[0-5]|[01]?\\d\\d?)$"),message: 'Please input right ipv4 ip', trigger: 'change'}
+        ],
+        rsyncPort: [
+          { required: true, message: 'Please input Host Port', trigger: 'change' },
+          { pattern: new RegExp("^[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]{1}|6553[0-5]$ "),message: 'Please input right port', trigger: 'change'}
         ]
       }
     }

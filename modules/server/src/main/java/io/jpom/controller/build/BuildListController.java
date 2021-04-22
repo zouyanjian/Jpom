@@ -38,6 +38,8 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import javax.annotation.Resource;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -176,6 +178,11 @@ public class BuildListController extends BaseServerController {
             if (formatSsh != null) {
                 return formatSsh;
             }
+        }else if (releaseMethod1 == BuildModel.ReleaseMethod.Rsync) {
+            String formatRsync = formatRsync(buildModel);
+            if (formatRsync != null) {
+                return formatRsync;
+            }
         } else {
             buildModel.setReleaseMethodDataId(null);
         }
@@ -185,6 +192,49 @@ public class BuildListController extends BaseServerController {
         }
         buildService.updateItem(buildModel);
         return JsonMessage.getString(200, "修改成功");
+    }
+
+
+    public boolean connect(String ip, int port) {
+        Socket socket = null;
+        try {
+            InetAddress ad = InetAddress.getByName(ip);
+            boolean state = ad.isReachable(1000);
+            if(!state) return false;
+            socket = new Socket(ip,port);
+            return true;
+        }catch (Exception e) {}
+        finally {
+            if (socket!=null) {
+                try {
+                    socket.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        return false;
+    }
+
+    private String formatRsync(BuildModel buildModel) {
+        //
+        String rsyncIp = getParameter("rsyncIp");
+        if (StrUtil.isEmpty(rsyncIp)) {
+            return JsonMessage.getString(405, "请输入发布到Rsync中ip地址");
+        }
+        String rsyncPort = getParameter("rsyncPort");
+        if (StrUtil.isEmpty(rsyncPort)) {
+            return JsonMessage.getString(405, "请输入发布到Rsync中端口");
+        }
+        /**测试服务器和远程端口通不通 不通认为传输失败*/
+        if (!connect(rsyncIp,Integer.valueOf(rsyncPort))) {
+            return JsonMessage.getString(405, "服务器未启用传输服务");
+        }
+        buildModel.setRsyncIp(rsyncIp);
+        buildModel.setRsyncPort(rsyncPort);
+        String clearOld = getParameter("clearOld");
+        buildModel.setClearOld(Convert.toBool(clearOld, false));
+        return null;
     }
 
     private String formatSsh(BuildModel buildModel) {
