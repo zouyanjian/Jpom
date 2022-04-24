@@ -1,33 +1,65 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.system.init;
 
-import cn.hutool.core.date.DateUtil;
+import cn.hutool.core.date.SystemClock;
+import cn.hutool.core.exceptions.ExceptionUtil;
+import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.db.Entity;
 import cn.hutool.extra.servlet.ServletUtil;
+import cn.jiangzeyin.common.DefaultSystemLog;
 import cn.jiangzeyin.common.JsonMessage;
 import cn.jiangzeyin.common.PreLoadClass;
 import cn.jiangzeyin.common.PreLoadMethod;
+import cn.jiangzeyin.common.request.XssFilter;
 import cn.jiangzeyin.common.spring.SpringUtil;
 import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.JSONValidator;
 import io.jpom.common.BaseServerController;
-import io.jpom.common.interceptor.OptLog;
-import io.jpom.controller.LoginControl;
+import io.jpom.common.Const;
 import io.jpom.model.data.NodeModel;
 import io.jpom.model.data.UserModel;
 import io.jpom.model.log.UserOperateLogV1;
+import io.jpom.permission.ClassFeature;
+import io.jpom.permission.Feature;
+import io.jpom.permission.MethodFeature;
 import io.jpom.service.dblog.DbUserOperateLogService;
-import io.jpom.service.user.UserService;
 import io.jpom.system.AopLogInterface;
 import io.jpom.system.WebAopLog;
-import org.aspectj.lang.JoinPoint;
+import lombok.Data;
+import org.apache.tomcat.util.http.fileupload.servlet.ServletFileUpload;
+import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.Signature;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import javax.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,119 +73,197 @@ import java.util.Set;
 public class OperateLogController implements AopLogInterface {
     private static final ThreadLocal<CacheInfo> CACHE_INFO_THREAD_LOCAL = new ThreadLocal<>();
 
+    private DbUserOperateLogService dbUserOperateLogService;
 
     @PreLoadMethod
     private static void init() {
         WebAopLog.setAopLogInterface(SpringUtil.getBean(OperateLogController.class));
     }
 
+    private CacheInfo createCacheInfo(Method method) {
+        Feature feature = method.getAnnotation(Feature.class);
+        if (feature == null) {
+            return null;
+        }
+        Class<?> declaringClass = method.getDeclaringClass();
+        MethodFeature methodFeature = feature.method();
+        if (methodFeature == MethodFeature.NULL) {
+            DefaultSystemLog.getLog().error("权限分发配置错误：{}  {}", declaringClass, method.getName());
+            return null;
+        }
+        ClassFeature classFeature = feature.cls();
+        if (classFeature == ClassFeature.NULL) {
+            Feature feature1 = declaringClass.getAnnotation(Feature.class);
+            if (feature1 == null || feature1.cls() == ClassFeature.NULL) {
+                DefaultSystemLog.getLog().error("权限分发配置错误：{}  {} class not find", declaringClass, method.getName());
+                return null;
+            }
+            classFeature = feature1.cls();
+        }
+        CacheInfo cacheInfo = new CacheInfo();
+        cacheInfo.setClassFeature(classFeature);
+        cacheInfo.setMethodFeature(methodFeature);
+        cacheInfo.setOptTime(SystemClock.now());
+        cacheInfo.setResultCode(feature.resultCode());
+        cacheInfo.setLogResponse(feature.logResponse());
+        //
+        if (dbUserOperateLogService == null) {
+            dbUserOperateLogService = SpringUtil.getBean(DbUserOperateLogService.class);
+        }
+        return cacheInfo;
+    }
+
     @Override
-    public void before(JoinPoint joinPoint) {
+    public void before(ProceedingJoinPoint joinPoint) {
         Signature signature = joinPoint.getSignature();
         if (signature instanceof MethodSignature) {
             MethodSignature methodSignature = (MethodSignature) signature;
             Method method = methodSignature.getMethod();
-            UserOperateLogV1.OptType optType = null;
-            OptLog optLog = method.getAnnotation(OptLog.class);
-            if (optLog != null) {
-                optType = optLog.value();
+            CacheInfo cacheInfo = this.createCacheInfo(method);
+            if (cacheInfo == null) {
+                return;
             }
-            if (optType != null) {
-                CacheInfo cacheInfo = new CacheInfo();
-                cacheInfo.optType = optType;
+            //
+            ServletRequestAttributes servletRequestAttributes = BaseServerController.getRequestAttributes();
+            HttpServletRequest request = servletRequestAttributes.getRequest();
+            // 获取ip地址
+            cacheInfo.ip = ServletUtil.getClientIP(request);
+            // 获取节点
+            cacheInfo.nodeModel = (NodeModel) request.getAttribute("node");
+            //
+            cacheInfo.userAgent = ServletUtil.getHeaderIgnoreCase(request, HttpHeaders.USER_AGENT);
+            cacheInfo.workspaceId = ServletUtil.getHeaderIgnoreCase(request, Const.WORKSPACEID_REQ_HEADER);
+            //
+            Map<String, Object> allData = this.buildRequestParam(request);
+            //
+            cacheInfo.dataId = StrUtil.toStringOrNull(allData.get("id"));
+            allData.put("request_url", request.getRequestURI());
+            //
+            cacheInfo.reqData = JSONObject.toJSONString(allData);
+            //
+            if (cacheInfo.methodFeature == MethodFeature.DEL) {
+                // 删除数据 提前查询出操作到数据相关信息
+                cacheInfo.optDataNameMap = dbUserOperateLogService.buildDataMsg(cacheInfo.classFeature, cacheInfo.dataId, cacheInfo.nodeModel == null ? null : cacheInfo.nodeModel.getId());
+            }
+            CACHE_INFO_THREAD_LOCAL.set(cacheInfo);
+        }
+    }
 
-                ServletRequestAttributes servletRequestAttributes = BaseServerController.getRequestAttributes();
-                HttpServletRequest request = servletRequestAttributes.getRequest();
-                if (optType == UserOperateLogV1.OptType.Login) {
-                    // 获取登录人的信息
-                    String userName = request.getParameter("userName");
-                    UserService userService = SpringUtil.getBean(UserService.class);
-                    cacheInfo.userModel = userService.getItem(userName);
-                }
-                // 获取ip地址
-                cacheInfo.ip = ServletUtil.getClientIP(request);
-                // 获取节点
-                cacheInfo.nodeModel = (NodeModel) request.getAttribute("node");
-                //
-                cacheInfo.dataId = request.getParameter("id");
-                //
-                cacheInfo.userAgent = ServletUtil.getHeaderIgnoreCase(request, HttpHeaders.USER_AGENT);
-                //
-                Map<String, String[]> map = ObjectUtil.clone(request.getParameterMap());
-                // 过滤密码字段
-                Set<Map.Entry<String, String[]>> entries = map.entrySet();
-                for (Map.Entry<String, String[]> entry : entries) {
-                    String key = entry.getKey();
-                    if (StrUtil.containsAnyIgnoreCase(key, "pwd", "password")) {
-                        entry.setValue(new String[]{"***"});
-                    }
-                }
-                cacheInfo.setReqData(JSONObject.toJSONString(map));
-                CACHE_INFO_THREAD_LOCAL.set(cacheInfo);
+    private Map<String, Object> buildRequestParam(HttpServletRequest request) {
+        Map<String, String> map = ServletUtil.getParamMap(request);
+        // 过滤密码字段
+        Set<Map.Entry<String, String>> entries = map.entrySet();
+        for (Map.Entry<String, String> entry : entries) {
+            String key = entry.getKey();
+            if (StrUtil.containsAnyIgnoreCase(key, XssFilter.logFilterPar)) {
+                entry.setValue("***");
             }
         }
+        //
+        Map<String, Object> allData = new HashMap<>(30);
+        String body = ServletFileUpload.isMultipartContent(request) ? null : ServletUtil.getBody(request);
+        if (StrUtil.isNotEmpty(body)) {
+            JSONValidator jsonValidator = JSONValidator.from(body);
+            JSONValidator.Type type = jsonValidator.getType();
+            if (type == null || type == JSONValidator.Type.Value) {
+                allData.put("bodyData", body);
+            } else if (type == JSONValidator.Type.Object) {
+                JSONObject jsonObject = JSONObject.parseObject(body);
+                allData.putAll(jsonObject);
+                //
+            } else if (type == JSONValidator.Type.Array) {
+                allData.put("bodyData", JSONObject.toJSON(body));
+            }
+        }
+        allData.putAll(map);
+        return allData;
     }
 
     @Override
     public void afterReturning(Object value) {
-        CacheInfo cacheInfo = CACHE_INFO_THREAD_LOCAL.get();
-        if (cacheInfo == null) {
-            return;
+        try {
+            CacheInfo cacheInfo = CACHE_INFO_THREAD_LOCAL.get();
+            if (cacheInfo == null || cacheInfo.methodFeature == MethodFeature.LIST) {
+                return;
+            }
+            if (cacheInfo.classFeature == null || cacheInfo.methodFeature == null) {
+                new RuntimeException("权限功能没有配置正确").printStackTrace();
+                return;
+            }
+            UserModel userModel = BaseServerController.getUserByThreadLocal();
+            userModel = userModel == null ? BaseServerController.getUserModel() : userModel;
+            // 没有对应的用户
+            if (userModel == null) {
+                return;
+            }
+            this.log(userModel, value, cacheInfo);
+        } finally {
+            CACHE_INFO_THREAD_LOCAL.remove();
         }
-        UserModel userModel = BaseServerController.getUserModel();
-        if (userModel == null) {
-            userModel = cacheInfo.userModel;
-        }
-        CACHE_INFO_THREAD_LOCAL.remove();
-        // 没有对应的用户
-        if (userModel == null) {
-            return;
-        }
-        this.log(userModel, value, cacheInfo);
     }
 
-    public void log(String reqId, UserModel userModel,
-                    Object value, CacheInfo cacheInfo) {
-        String ip = cacheInfo.ip;
-        UserOperateLogV1.OptType optType = cacheInfo.optType;
-        NodeModel nodeModel = cacheInfo.nodeModel;
-        String dataId = cacheInfo.dataId;
-        UserOperateLogV1 userOperateLogV1 = new UserOperateLogV1(reqId);
-        //
-        userOperateLogV1.setUserId(UserModel.getOptUserName(userModel));
-        userOperateLogV1.setIp(ip);
+    /**
+     * 记录操作日志
+     *
+     * @param userModel 用户
+     * @param value     返回执行
+     * @param cacheInfo 请求信息
+     */
+    public void log(UserModel userModel, Object value, CacheInfo cacheInfo) {
+        UserOperateLogV1 userOperateLogV1 = new UserOperateLogV1();
+        userOperateLogV1.setWorkspaceId(cacheInfo.workspaceId);
+        userOperateLogV1.setClassFeature(cacheInfo.classFeature.name());
+        userOperateLogV1.setMethodFeature(cacheInfo.methodFeature.name());
+        userOperateLogV1.setDataId(cacheInfo.dataId);
+        userOperateLogV1.setUserId(userModel.getId());
+        userOperateLogV1.setIp(cacheInfo.ip);
         userOperateLogV1.setUserAgent(cacheInfo.userAgent);
         userOperateLogV1.setReqData(cacheInfo.reqData);
+        userOperateLogV1.setOptTime(ObjectUtil.defaultIfNull(cacheInfo.optTime, SystemClock.now()));
         if (value != null) {
             // 解析结果
-            String json = value.toString();
-            userOperateLogV1.setResultMsg(json);
-            try {
-                JsonMessage<String> jsonMessage = JSONObject.parseObject(json, JsonMessage.class);
-                // 没有输入验证码不记录日志
-//                if (optType == UserOperateLogV1.OptType.Login && jsonMessage.getCode() == LoginControl.INPUT_CODE) {
-//                    return;
-//                }
-                userOperateLogV1.setOptStatus(jsonMessage.getCode());
-            } catch (Exception ignored) {
+            if (value instanceof Throwable) {
+                // 发生异常
+                Throwable throwable = (Throwable) value;
+                userOperateLogV1.setResultMsg(ExceptionUtil.stacktraceToString(throwable));
+                userOperateLogV1.setOptStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+            } else {
+                String json = value.toString();
+                userOperateLogV1.setResultMsg(json);
+                try {
+                    JsonMessage<?> jsonMessage = JSONObject.parseObject(json, JsonMessage.class);
+                    int code = jsonMessage.getCode();
+                    int[] resultCode = cacheInfo.getResultCode();
+                    if (ArrayUtil.isNotEmpty(resultCode) && !ArrayUtil.contains(resultCode, code)) {
+                        // 忽略
+                        return;
+                    }
+                    userOperateLogV1.setOptStatus(code);
+                } catch (Exception ignored) {
+                }
+            }
+            // 判断是否记录响应日志
+            Boolean logResponse = cacheInfo.getLogResponse();
+            if (logResponse != null && !logResponse) {
+                userOperateLogV1.setResultMsg(new cn.hutool.json.JSONObject().putOpt("hide", "*****").toString());
             }
         }
-        userOperateLogV1.setOptTime(DateUtil.current());
-        userOperateLogV1.setOptType(optType.getCode());
         //
-        if (nodeModel != null) {
-            userOperateLogV1.setNodeId(nodeModel.getId());
+        if (cacheInfo.nodeModel != null) {
+            userOperateLogV1.setNodeId(cacheInfo.nodeModel.getId());
+            if (StrUtil.isEmpty(cacheInfo.workspaceId)) {
+                userOperateLogV1.setWorkspaceId(cacheInfo.nodeModel.getWorkspaceId());
+            }
         }
         //
-        userOperateLogV1.setDataId(dataId);
-
-        DbUserOperateLogService dbUserOperateLogService = SpringUtil.getBean(DbUserOperateLogService.class);
-        dbUserOperateLogService.insert(userOperateLogV1);
+        try {
+            BaseServerController.resetInfo(UserModel.EMPTY);
+            dbUserOperateLogService.insert(userOperateLogV1, cacheInfo);
+        } finally {
+            BaseServerController.removeEmpty();
+        }
     }
 
-    public void log(UserModel userModel, Object value, CacheInfo cacheInfo) {
-        this.log(null, userModel, value, cacheInfo);
-    }
 
     /**
      * 修改执行结果
@@ -180,41 +290,22 @@ public class OperateLogController implements AopLogInterface {
     /**
      * 临时缓存
      */
+    @Data
     public static class CacheInfo {
-        private UserOperateLogV1.OptType optType;
-        private UserModel userModel;
+        private Long optTime;
+        private String workspaceId;
+        private ClassFeature classFeature;
+        private MethodFeature methodFeature;
         private String ip;
         private NodeModel nodeModel;
         private String dataId;
         private String userAgent;
         private String reqData;
-
-        public void setReqData(String reqData) {
-            this.reqData = reqData;
-        }
-
-        public void setOptType(UserOperateLogV1.OptType optType) {
-            this.optType = optType;
-        }
-
-        public void setUserModel(UserModel userModel) {
-            this.userModel = userModel;
-        }
-
-        public void setIp(String ip) {
-            this.ip = ip;
-        }
-
-        public void setNodeModel(NodeModel nodeModel) {
-            this.nodeModel = nodeModel;
-        }
-
-        public void setDataId(String dataId) {
-            this.dataId = dataId;
-        }
-
-        public void setUserAgent(String userAgent) {
-            this.userAgent = userAgent;
-        }
+        private int[] resultCode;
+        private Boolean logResponse;
+        /**
+         * 操作到数据到名称相关 map
+         */
+        private Map<String, Object> optDataNameMap;
     }
 }

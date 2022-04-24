@@ -1,3 +1,25 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.system.init;
 
 import cn.hutool.core.date.DateTime;
@@ -22,7 +44,6 @@ import io.jpom.util.JsonFileUtil;
 import io.jpom.util.JvmUtil;
 
 import java.io.File;
-import java.util.List;
 
 /**
  * 自动导入本机节点
@@ -33,7 +54,6 @@ import java.util.List;
 @PreLoadClass
 public class AutoImportLocalNode {
 
-	private static final String AGENT_MAIN_CLASS = "io.jpom.JpomAgentApplication";
 	private static NodeService nodeService;
 
 	@PreLoadMethod
@@ -52,17 +72,17 @@ public class AutoImportLocalNode {
 	@PreLoadMethod
 	private static void loadAgent() {
 		nodeService = SpringUtil.getBean(NodeService.class);
-		List<NodeModel> list = nodeService.list();
-		if (list != null && !list.isEmpty()) {
+		long count = nodeService.count();
+		if (count > 0) {
 			return;
 		}
 		//
 		try {
-			List<sun.jvmstat.monitor.MonitoredVm> monitoredVms = JvmUtil.listMainClass(AGENT_MAIN_CLASS);
-			monitoredVms.forEach(monitoredVm -> {
-				sun.jvmstat.monitor.VmIdentifier vmIdentifier = monitoredVm.getVmIdentifier();
-				findPid(vmIdentifier.getUserInfo());
-			});
+			Integer mainClassPid = JvmUtil.findMainClassPid(Type.Agent.getApplicationClass());
+			if (mainClassPid == null) {
+				return;
+			}
+			findPid(mainClassPid.toString());
 		} catch (Exception e) {
 			DefaultSystemLog.getLog().error("自动添加本机节点错误", e);
 		}
@@ -91,13 +111,13 @@ public class AutoImportLocalNode {
 		NodeModel nodeModel = new NodeModel();
 		nodeModel.setUrl(StrUtil.format("127.0.0.1:{}", jpomManifest.getPort()));
 		nodeModel.setName("本机");
-		nodeModel.setId("localhost");
+		//nodeModel.setProtocol("http");
 		//
 		nodeModel.setLoginPwd(autoUser.getAgentPwd());
 		nodeModel.setLoginName(autoUser.getAgentName());
 		//
-		nodeModel.setOpenStatus(true);
-		nodeService.addItem(nodeModel);
-		Console.log("自动添加本机节点成功：" + nodeModel.getId());
+		nodeModel.setOpenStatus(1);
+		nodeService.insertNotFill(nodeModel);
+		Console.log("Automatically add native node successfully：" + nodeModel.getId());
 	}
 }

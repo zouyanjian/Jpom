@@ -1,9 +1,36 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.socket;
 
+import cn.hutool.core.lang.Tuple;
+import cn.hutool.http.HttpStatus;
 import cn.jiangzeyin.common.DefaultSystemLog;
+import cn.jiangzeyin.common.JsonMessage;
 import com.alibaba.fastjson.JSONObject;
 import io.jpom.JpomApplication;
+import io.jpom.common.Const;
 import io.jpom.common.JpomManifest;
+import io.jpom.common.Type;
 import io.jpom.model.AgentFileModel;
 import io.jpom.model.WebSocketMessageModel;
 import io.jpom.model.data.UploadFileModel;
@@ -33,7 +60,7 @@ public class AgentWebSocketUpdateHandle extends BaseAgentWebSocketHandle {
 		if (super.checkAuthorize(session)) {
 			return;
 		}
-		session.setMaxBinaryMessageBufferSize(1024 * 1024);
+		session.setMaxBinaryMessageBufferSize(Const.DEFAULT_BUFFER_SIZE);
 		//
 	}
 
@@ -84,13 +111,18 @@ public class AgentWebSocketUpdateHandle extends BaseAgentWebSocketHandle {
 	 * @return 结果
 	 */
 	public String restart(Session session) {
-		String result = "重启中";
+		String result = Const.UPGRADE_MSG;
 		try {
 			UploadFileModel uploadFile = UPLOAD_FILE_INFO.get(session.getId());
-			JpomManifest.releaseJar(uploadFile.getFilePath(), uploadFile.getVersion(), true);
+			String filePath = uploadFile.getFilePath();
+			JsonMessage<Tuple> error = JpomManifest.checkJpomJar(filePath, Type.Agent);
+			if (error.getCode() != HttpStatus.HTTP_OK) {
+				return error.getMsg();
+			}
+			JpomManifest.releaseJar(filePath, uploadFile.getVersion());
 			JpomApplication.restart();
-		} catch (RuntimeException e) {
-			result = e.getMessage();
+		} catch (Exception e) {
+			result = "重启失败" + e.getMessage();
 			DefaultSystemLog.getLog().error("重启失败", e);
 		}
 		return result;

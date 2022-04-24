@@ -16,10 +16,11 @@ spring:
       max-request-size: 2GB
       max-file-size: 1GB
 banner:
-  msg: Jpom-Agent管理系统启动中
+  msg: Jpom-Agent Starting
 # 启动完成自动初始化指定包
 preload:
   packageName: io.jpom.system.init
 # 强制去掉空格
 request:
   trimAll: true
+  urlDecode: true

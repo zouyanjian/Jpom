@@ -1,6 +1,29 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.controller.system;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.text.CharPool;
 import cn.hutool.core.text.StrSplitter;
 import cn.hutool.core.util.CharsetUtil;
 import cn.hutool.core.util.StrUtil;
@@ -55,14 +78,13 @@ public class NginxController extends BaseAgentController {
 	 * @return json
 	 */
 	@RequestMapping(value = "list_data.json", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	public String list(String whitePath, String name) {
+	public String list(String whitePath, String name, String showAll) {
 		boolean checkNgxDirectory = whitelistDirectoryService.checkNgxDirectory(whitePath);
 		Assert.state(checkNgxDirectory, "文件路径错误,非白名单路径");
 		if (StrUtil.isEmpty(name)) {
-			name = "/";
+			name = StrUtil.SLASH;
 		}
-		String newName = pathSafe(name);
-		JSONArray array = nginxService.list(whitePath, newName);
+		List<JSONObject> array = nginxService.list(whitePath, name, showAll);
 		return JsonMessage.getString(200, "", array);
 	}
 
@@ -100,6 +122,11 @@ public class NginxController extends BaseAgentController {
 //            setAttribute("data", jsonObject);
 	}
 
+	private void checkName(String name) {
+		Assert.hasText(name, "请填写文件名");
+		Assert.state(name.endsWith(".conf"), "文件后缀必须为\".conf\"");
+	}
+
 	/**
 	 * 新增或修改配置
 	 *
@@ -110,8 +137,7 @@ public class NginxController extends BaseAgentController {
 	 */
 	@RequestMapping(value = "updateNgx", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
 	public String updateNgx(String name, String whitePath, String genre, String context) {
-		Assert.hasText(name, "请填写文件名");
-		Assert.state(name.endsWith(".conf"), "文件后缀必须为\".conf\"");
+		this.checkName(name);
 		//
 		boolean ngxDirectory = whitelistDirectoryService.checkNgxDirectory(whitePath);
 		Assert.state(ngxDirectory, "请选择正确的白名单");
@@ -215,21 +241,35 @@ public class NginxController extends BaseAgentController {
 	 * @return json
 	 */
 	@RequestMapping(value = "delete", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	public String delete(String path, String name) {
+	public String delete(String path, String name, String type, String from) {
 		if (!whitelistDirectoryService.checkNgxDirectory(path)) {
 			return JsonMessage.getString(400, "非法操作");
 		}
-		String safePath = pathSafe(path);
-		String safeName = pathSafe(name);
-		if (StrUtil.isEmpty(safeName)) {
-			return JsonMessage.getString(400, "删除失败,请正常操作");
+		Assert.hasText(name, "请填写文件名");
+		if (StrUtil.equals(from, "back")) {
+			Assert.state(name.endsWith(".conf_back"), "不能操作此文件");
+		} else {
+			Assert.state(name.endsWith(".conf"), "文件后缀必须为\".conf\"");
 		}
-		File file = FileUtil.file(safePath, safeName);
-		try {
-			FileUtil.rename(file, file.getName() + "_back", false, true);
-		} catch (Exception e) {
-			DefaultSystemLog.getLog().error("删除nginx", e);
-			return JsonMessage.getString(400, "删除失败:" + e.getMessage());
+		File file = FileUtil.file(path, name);
+		if (StrUtil.equals(type, "real")) {
+			// 真删除
+			FileUtil.del(file);
+		} else {
+			try {
+				if (StrUtil.equals(from, "back")) {
+					// 恢复  可能出现 所以 copy Read-only file system
+					File back = FileUtil.file(path, StrUtil.removeSuffix(name, "_back"));
+					FileUtil.copy(file, back, true);
+					FileUtil.del(file);
+				} else {
+					// 假删除
+					FileUtil.rename(file, file.getName() + "_back", false, true);
+				}
+			} catch (Exception e) {
+				DefaultSystemLog.getLog().error("删除nginx", e);
+				return JsonMessage.getString(400, "操作失败:" + e.getMessage());
+			}
 		}
 		String msg = this.reloadNginx();
 		return JsonMessage.getString(200, "删除成功" + msg);
@@ -299,7 +339,7 @@ public class NginxController extends BaseAgentController {
 	public String close() {
 		String name = nginxService.getServiceName();
 		String result = AbstractSystemCommander.getInstance().stopService(name);
-		return JsonMessage.getString(200, result);
+		return JsonMessage.getString(200, "nginx服务已停止 " + result);
 	}
 
 	/**
@@ -321,7 +361,7 @@ public class NginxController extends BaseAgentController {
 			for (String str : strings) {
 				str = str.toUpperCase().trim();
 				if (str.startsWith("BINARY_PATH_NAME")) {
-					String path = str.substring(str.indexOf(":") + 1).replace("\"", "").trim();
+					String path = str.substring(str.indexOf(CharPool.COLON) + 1).replace("\"", "").trim();
 					file = FileUtil.file(path).getParentFile();
 					break;
 				}

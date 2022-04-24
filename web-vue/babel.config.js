@@ -1,10 +1,4 @@
 module.exports = {
-  presets: [],
-  plugins: [
-    [
-      'component',
-      { libraryName: 'element-ui', styleLibraryName: 'theme-chalk' }
-    ],
-    "@babel/plugin-proposal-optional-chaining",
-  ]
-}
+  presets: ["@vue/cli-plugin-babel/preset"],
+  plugins: [["import", { libraryName: "ant-design-vue", libraryDirectory: "es", style: "css" }], "@babel/plugin-proposal-optional-chaining"],
+};

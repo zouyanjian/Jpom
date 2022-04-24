@@ -1,49 +1,74 @@
 <template>
   <!-- 布局 -->
-  <a-layout class="file-layout">
+  <a-layout class="file-layout node-full-content">
     <!-- 目录树 -->
     <a-layout-sider theme="light" class="sider" width="25%">
       <div class="dir-container">
-        <a-button type="primary" @click="loadData">刷新目录</a-button>
-        <a-button type="primary" v-if="showConsole" @click="goConsole" v-show="runMode !== 'File'">控制台</a-button>
+        <a-space>
+          <a-button size="small" type="primary" @click="loadData">刷新目录</a-button>
+          <a-button size="small" type="primary" v-if="showConsole" @click="goConsole" v-show="noFileModes.includes(runMode)">控制台</a-button>
+        </a-space>
       </div>
-      <a-empty v-if="treeList.length === 0" />
-      <el-tree
-        ref="tree"
-        :data="treeList"
-        :props="defaultProps"
-        :load="loadNode"
-        :default-expanded-keys="expandKeys"
-        :expand-on-click-node="false"
-        node-key="$treeNodeId"
-        highlight-current
-        lazy
-        @node-click="nodeClick"
-      ></el-tree>
+
+      <a-directory-tree :replace-fields="treeReplaceFields" @select="nodeClick" :loadData="onTreeData" :treeData="treeList"></a-directory-tree>
     </a-layout-sider>
     <!-- 表格 -->
     <a-layout-content class="file-content">
-      <div ref="filter" class="filter">
-        <!-- <a-tag color="#2db7f5">项目目录: {{ absPath }}</a-tag>-->
-        <a-button type="primary" @click="handleUpload">批量上传文件</a-button>
-        <a-button type="primary" @click="handleZipUpload">上传压缩文件（自动解压）</a-button>
-        <a-button type="primary" @click="openRemoteUpload">远程上传</a-button>
-        <a-button type="primary" @click="loadFileList">刷新表格</a-button>
-        <a-button type="danger" @click="clearFile">清空项目目录</a-button>
-        <a-tag color="#2db7f5" v-if="uploadPath">当前目录: {{ uploadPath }}</a-tag>
-      </div>
-      <a-table
-        :data-source="fileList"
-        :loading="loading"
-        :columns="columns"
-        :scroll="{ x: 730, y: tableHeight - 60 }"
-        :style="{ 'max-height': tableHeight + 'px' }"
-        :pagination="false"
-        bordered
-        :rowKey="(record, index) => index"
-      >
-        <a-tooltip slot="filename" slot-scope="text" placement="topLeft" :title="text">
-          <span>{{ text }}</span>
+      <a-table :data-source="fileList" size="middle" :loading="loading" :columns="columns" :pagination="false" bordered :rowKey="(record, index) => index">
+        <template slot="title">
+          <!-- <a-tag color="#2db7f5">项目目录: {{ absPath }}</a-tag>-->
+          <a-space>
+            <a-dropdown :disabled="!Object.keys(this.tempNode).length">
+              <a-button size="small" type="primary" @click="(e) => e.preventDefault()"><a-icon type="upload" />上传</a-button>
+              <a-menu slot="overlay">
+                <a-menu-item @click="handleUpload">
+                  <a-space><a-icon type="file" />上传文件</a-space>
+                </a-menu-item>
+                <a-menu-item @click="handleZipUpload">
+                  <a-space><a-icon type="file-zip" />上传压缩包并自动解压</a-space>
+                </a-menu-item>
+              </a-menu>
+            </a-dropdown>
+            <a-dropdown :disabled="!Object.keys(this.tempNode).length">
+              <a-button size="small" type="primary" @click="(e) => e.preventDefault()">新建</a-button>
+              <a-menu slot="overlay">
+                <a-menu-item @click="handleAddFolder">
+                  <a-space>
+                    <a-icon type="folder-add" />
+                    <a-space>新建目录</a-space>
+                  </a-space>
+                </a-menu-item>
+                <a-menu-item @click="handleAddFile">
+                  <a-space>
+                    <a-icon type="file-add" />
+                    <a-space>新建空白文件</a-space>
+                  </a-space>
+                </a-menu-item>
+              </a-menu>
+            </a-dropdown>
+            <a-tooltip title="通过 URL 下载远程文件到项目文件夹,需要到节点系统配置->白名单配置中配置允许的 HOST 白名单">
+              <a-button size="small" type="primary" @click="openRemoteUpload"><a-icon type="cloud-download" /></a-button>
+            </a-tooltip>
+            <a-tooltip title="刷新文件表格">
+              <a-button size="small" type="primary" @click="loadFileList"><a-icon type="reload" /></a-button>
+            </a-tooltip>
+            <a-tooltip title="清空当前目录文件">
+              <a-button size="small" type="danger" @click="clearFile"><a-icon type="delete" /></a-button>
+            </a-tooltip>
+
+            <a-tag color="#2db7f5" v-if="uploadPath">当前目录: {{ uploadPath || "" }}</a-tag>
+            <div>文件名栏支持右键菜单</div>
+          </a-space>
+        </template>
+        <a-tooltip slot="filename" slot-scope="text, record" placement="topLeft" :title="text">
+          <a-dropdown :trigger="['contextmenu']">
+            <span>{{ text }}</span>
+            <a-menu slot="overlay">
+              <a-menu-item key="1">
+                <a-button icon="bars" @click="goReadFile(record)" :disabled="!record.textFileEdit" type="link"> 阅读文件 </a-button>
+              </a-menu-item>
+            </a-menu>
+          </a-dropdown>
         </a-tooltip>
         <a-tooltip slot="isDirectory" slot-scope="text" placement="topLeft" :title="text">
           <span>{{ text ? "目录" : "文件" }}</span>
@@ -51,12 +76,24 @@
         <a-tooltip slot="fileSize" slot-scope="text" placement="topLeft" :title="text">
           <span>{{ text }}</span>
         </a-tooltip>
-        <template slot="operation" v-if="!record.isDirectory" slot-scope="text, record">
-          <a-tooltip title="需要到 节点管理中的系统管理的白名单配置中配置允许编辑的文件后缀">
-            <a-button type="primary" :disabled="!record.textFileEdit" @click="handleEditFile(record)">编辑</a-button>
-          </a-tooltip>
-          <a-button type="primary" @click="handleDownload(record)">下载</a-button>
-          <a-button type="danger" @click="handleDelete(record)">删除</a-button>
+        <template slot="operation" slot-scope="text, record">
+          <a-space>
+            <template v-if="record.isDirectory">
+              <a-tooltip title="目录不能编辑">
+                <a-button size="small" type="primary" :disabled="true">编辑</a-button>
+              </a-tooltip>
+              <a-tooltip title="还不能下载目录">
+                <a-button size="small" type="primary" :disabled="true">下载</a-button>
+              </a-tooltip>
+            </template>
+            <template v-else>
+              <a-tooltip title="需要到 节点管理中的系统管理的白名单配置中配置允许编辑的文件后缀">
+                <a-button size="small" type="primary" :disabled="!record.textFileEdit" @click="handleEditFile(record)">编辑</a-button>
+              </a-tooltip>
+              <a-button size="small" type="primary" @click="handleDownload(record)">下载</a-button>
+            </template>
+            <a-button size="small" type="danger" @click="handleDelete(record)">删除</a-button>
+          </a-space>
         </template>
       </a-table>
       <!-- 批量上传文件 -->
@@ -65,23 +102,27 @@
           <a-button><a-icon type="upload" />选择文件</a-button>
         </a-upload>
         <br />
-        <el-progress :text-inside="true" :stroke-width="18" :percentage="percentage" status="success"></el-progress>
+        <a-progress v-if="percentage" :percent="percentage" status="success"></a-progress>
         <br />
-        <a-button type="primary" :disabled="fileUploadDisabled" @click="startUpload">开始上传</a-button>
-        <a-tag color="green" :visible="successSize !== 0" :closable="true" class="successTag"> 上传成功: {{ successSize }} 个文件! </a-tag>
+        <a-space>
+          <a-button type="primary" :disabled="fileUploadDisabled" @click="startUpload">开始上传</a-button>
+          <a-tag color="green" :visible="successSize !== 0" :closable="true" class="successTag"> 上传成功: {{ successSize }} 个文件! </a-tag>
+        </a-space>
       </a-modal>
       <!-- 上传压缩文件 -->
       <a-modal v-model="uploadZipFileVisible" width="300px" title="上传压缩文件" :footer="null" :maskClosable="true">
-        <a-upload :file-list="uploadFileList" :remove="handleZipRemove" :before-upload="beforeZipUpload" accept=".tar,.bz2,.gz,.zip,.tar.bz2,.tar.gz">
+        <a-upload :file-list="uploadFileList" :remove="handleZipRemove" :before-upload="beforeZipUpload" :accept="ZIP_ACCEPT">
           <a-button><a-icon type="upload" />选择压缩文件</a-button>
         </a-upload>
         <br />
         <a-switch v-model="checkBox" checked-children="清空覆盖" un-checked-children="不清空" style="margin-bottom: 10px" />
         <br />
-        <el-progress :text-inside="true" :stroke-width="18" :percentage="percentage" status="success"></el-progress>
+        <a-progress v-if="percentage" :percent="percentage" status="success"></a-progress>
         <br />
-        <a-button type="primary" :disabled="fileUploadDisabled" @click="startZipUpload">开始上传</a-button>
-        <a-tag color="green" :visible="successSize !== 0" :closable="true" class="successTag"> 上传成功: {{ successSize }} 个文件! </a-tag>
+        <a-space>
+          <a-button type="primary" :disabled="fileUploadDisabled" @click="startZipUpload">开始上传</a-button>
+          <a-tag color="green" :visible="successSize !== 0" :closable="true" class="successTag"> 上传成功: {{ successSize }} 个文件! </a-tag>
+        </a-space>
       </a-modal>
 
       <a-modal v-model="editFileVisible" width="80vw" title="编辑文件" cancelText="关闭" :maskClosable="true" @ok="updateFileData" @cancel="handleCloseModal">
@@ -100,12 +141,25 @@
           </a-form-model-item>
         </a-form-model>
       </a-modal>
+      <!-- 创建文件/文件夹 -->
+      <a-modal v-model="addFileFolderVisible" width="300px" :title="addFileOrFolderType === 1 ? '新增目录' : '新建文件'" :footer="null" :maskClosable="true">
+        <a-space direction="vertical" style="width: 100%">
+          <span v-if="uploadPath">当前目录:{{ uploadPath }}</span>
+          <!-- <a-tag v-if="">目录创建成功后需要手动刷新右边树才能显示出来哟</a-tag> -->
+          <a-tooltip :title="this.addFileOrFolderType === 1 ? '目录创建成功后需要手动刷新右边树才能显示出来哟' : ''">
+            <a-input v-model="fileFolderName" placeholder="输入文件或者文件夹名" />
+          </a-tooltip>
+          <a-row type="flex" justify="center">
+            <a-button type="primary" :disabled="fileFolderName.length === 0" @click="startAddFileFolder">确认</a-button>
+          </a-row>
+        </a-space>
+      </a-modal>
     </a-layout-content>
   </a-layout>
 </template>
 <script>
-import { getFileList, downloadProjectFile, deleteProjectFile, uploadProjectFile, readFile, updateFile, remoteDownload } from "../../../../api/node-project";
-
+import { getFileList, downloadProjectFile, noFileModes, deleteProjectFile, uploadProjectFile, readFile, updateFile, remoteDownload, newFileFolder } from "@/api/node-project";
+import { ZIP_ACCEPT } from "@/utils/const";
 import codeEditor from "@/components/codeEditor";
 
 export default {
@@ -132,11 +186,12 @@ export default {
   },
   data() {
     return {
+      ZIP_ACCEPT: ZIP_ACCEPT,
+      noFileModes: noFileModes,
       loading: false,
       treeList: [],
       fileList: [],
       uploadFileList: [],
-      expandKeys: [],
       tempNode: {},
       temp: {},
       filename: "",
@@ -146,7 +201,10 @@ export default {
       editFileVisible: false,
       successSize: 0,
       fileContent: "",
-
+      treeReplaceFields: {
+        title: "filename",
+        isLeaf: "isDirectory",
+      },
       cmOptions: {
         mode: "application/json",
       },
@@ -158,7 +216,6 @@ export default {
       defaultProps: {
         children: "children",
         label: "filename",
-        isLeaf: "isLeaf",
       },
       remoteDownloadData: {
         id: "",
@@ -170,11 +227,15 @@ export default {
         { title: "文件类型", dataIndex: "isDirectory", width: 100, ellipsis: true, scopedSlots: { customRender: "isDirectory" } },
         { title: "文件大小", dataIndex: "fileSize", width: 120, ellipsis: true, scopedSlots: { customRender: "fileSize" } },
         { title: "修改时间", dataIndex: "modifyTime", width: 180, ellipsis: true },
-        { title: "操作", dataIndex: "operation", width: 260, scopedSlots: { customRender: "operation" } },
+        { title: "操作", dataIndex: "operation", width: 180, align: "center", scopedSlots: { customRender: "operation" } },
       ],
       rules: {
         url: [{ required: true, message: "远程下载Url不为空", trigger: "change" }],
       },
+      addFileFolderVisible: false,
+      // 目录1 文件2 标识
+      addFileOrFolderType: 1,
+      fileFolderName: "",
     };
   },
   computed: {
@@ -182,26 +243,20 @@ export default {
       return this.uploadFileList.length === 0 || this.uploading;
     },
     uploadPath() {
-      if (!this.tempNode.data) {
+      if (!Object.keys(this.tempNode).length) {
         return "";
       }
       if (this.tempNode.level === 1) {
         return "";
       } else {
-        return (this.tempNode.data.levelName || "") + "/" + this.tempNode.data.filename;
+        return (this.tempNode.levelName || "") + "/" + this.tempNode.filename;
       }
     },
   },
   mounted() {
-    this.calcTableHeight();
     this.loadData();
   },
   methods: {
-    // 计算表格高度
-    calcTableHeight() {
-      this.tableHeight = window.innerHeight - this.$refs["filter"].clientHeight - 135;
-    },
-
     handleEditFile(record) {
       this.editFileVisible = true;
       this.loadFileData(record.filename);
@@ -212,29 +267,38 @@ export default {
     handleCloseModal() {
       this.fileContent = "";
     },
-
+    onTreeData(treeNode) {
+      return new Promise((resolve) => {
+        if (treeNode.dataRef.children || !treeNode.dataRef.isDirectory) {
+          resolve();
+          return;
+        }
+        this.loadNode(treeNode.dataRef, resolve);
+      });
+    },
     // 加载数据
     loadData() {
-      this.treeList = [];
-      const data = {
-        $treeNodeId: 1,
-        filename: "目录：" + (this.absPath || ""),
-        isDirectory: true,
-        isLeaf: false,
-      };
-      this.treeList.push(data);
+      const key = "root-" + new Date().getTime();
+      this.treeList = [
+        {
+          filename: "目录：" + (this.absPath || ""),
+          level: 1,
+          isDirectory: true,
+          key: key,
+          isLeaf: false,
+        },
+      ];
       // 设置默认展开第一个
       setTimeout(() => {
-        const node = this.$refs["tree"].getNode(1);
+        const node = this.treeList[0];
         this.tempNode = node;
-        this.expandKeys = [1];
+        this.expandKeys = [key];
         this.loadFileList();
       }, 1000);
     },
     // 加载子节点
-    loadNode(node, resolve) {
-      const data = node.data;
-      this.tempNode = node;
+    loadNode(data, resolve) {
+      this.tempNode = data;
       // 如果是目录
       if (data.isDirectory) {
         setTimeout(() => {
@@ -252,18 +316,26 @@ export default {
           // 加载文件
           getFileList(params).then((res) => {
             if (res.code === 200) {
-              const treeData = res.data;
-              treeData.forEach((ele) => {
-                ele.isLeaf = !ele.isDirectory;
-              });
-              resolve(res.data);
+              const treeData = res.data
+                .filter((ele) => {
+                  return ele.isDirectory;
+                })
+                .map((ele) => {
+                  ele.isLeaf = !ele.isDirectory;
+                  ele.key = ele.filename + "-" + new Date().getTime();
+                  return ele;
+                });
+              data.children = treeData;
+
+              this.treeList = [...this.treeList];
+              resolve();
             } else {
-              resolve([]);
+              resolve();
             }
           });
         }, 500);
       } else {
-        resolve([]);
+        resolve();
       }
     },
 
@@ -295,14 +367,18 @@ export default {
       };
 
       updateFile(params).then((res) => {
-        console.log(res, 2312);
+        if (res.code === 200) {
+          this.$notification.success({
+            message: res.msg,
+          });
+        }
       });
     },
 
     // 点击树节点
-    nodeClick(data, node) {
-      if (data.isDirectory) {
-        this.tempNode = node;
+    nodeClick(selectedKeys, { node }) {
+      if (node.dataRef.isDirectory) {
+        this.tempNode = node.dataRef;
         this.loadFileList();
       }
     },
@@ -311,12 +387,12 @@ export default {
       if (Object.keys(this.tempNode).length === 0) {
         this.$notification.error({
           message: "请选择一个节点",
-          duration: 2,
         });
         return;
       }
       //初始化成功数
       this.successSize = 0;
+      this.uploadFileList = [];
       this.uploadFileVisible = true;
     },
     handleRemove(file) {
@@ -334,7 +410,6 @@ export default {
     startUpload() {
       this.$notification.info({
         message: "正在上传文件，请稍后...",
-        duration: 2,
       });
       // 设置上传状态
       this.uploading = true;
@@ -356,7 +431,6 @@ export default {
           if (res.code === 200) {
             this.$notification.success({
               message: res.msg,
-              duration: 2,
             });
             this.successSize++;
           }
@@ -379,12 +453,12 @@ export default {
       if (Object.keys(this.tempNode).length === 0) {
         this.$notification.error({
           message: "请选择一个节点",
-          duration: 2,
         });
         return;
       }
       this.checkBox = false;
       this.successSize = 0;
+      this.uploadFileList = [];
       this.uploadZipFileVisible = true;
     },
     handleZipRemove() {
@@ -398,7 +472,6 @@ export default {
     startZipUpload() {
       this.$notification.info({
         message: "正在上传文件，请稍后...",
-        duration: 2,
       });
       // 设置上传状态
       this.uploading = true;
@@ -421,7 +494,6 @@ export default {
         if (res.code === 200) {
           this.$notification.success({
             message: res.msg,
-            duration: 2,
           });
           this.successSize++;
           this.percentage = 100;
@@ -434,6 +506,7 @@ export default {
             this.loadFileList();
           }, 1000);
         }
+        this.percentage = 0;
       });
     },
     //打开远程上传
@@ -461,7 +534,6 @@ export default {
             if (res.code == 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
               this.remoteDownloadData = {};
               this.uploadRemoteFileVisible = false;
@@ -478,7 +550,6 @@ export default {
       if (Object.keys(this.tempNode).length === 0) {
         this.$notification.warn({
           message: "请选择一个节点",
-          duration: 2,
         });
         return false;
       }
@@ -508,9 +579,10 @@ export default {
     },
     // 清空文件
     clearFile() {
+      const msg = this.uploadPath ? "真的要清空 【" + this.uploadPath + "】目录和文件么？" : "真的要清空项目目录和文件么？";
       this.$confirm({
         title: "系统提示",
-        content: "真的要清空项目目录和文件么？",
+        content: msg,
         okText: "确认",
         cancelText: "取消",
         onOk: () => {
@@ -519,13 +591,13 @@ export default {
             nodeId: this.nodeId,
             id: this.projectId,
             type: "clear",
+            levelName: this.uploadPath,
           };
           // 删除
           deleteProjectFile(params).then((res) => {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
               this.loadFileList();
             }
@@ -537,7 +609,6 @@ export default {
     handleDownload(record) {
       this.$notification.info({
         message: "正在下载，请稍等...",
-        duration: 5,
       });
       // 请求参数
       const params = {
@@ -559,9 +630,10 @@ export default {
     },
     // 删除
     handleDelete(record) {
+      const msg = record.isDirectory ? "真的要删除【" + record.filename + "】文件夹么？" : "真的要删除【" + record.filename + "】文件么？";
       this.$confirm({
         title: "系统提示",
-        content: "真的要删除文件么？",
+        content: msg,
         okText: "确认",
         cancelText: "取消",
         onOk: () => {
@@ -577,7 +649,6 @@ export default {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
               this.loadData();
               this.loadFileList();
@@ -588,6 +659,40 @@ export default {
     },
     goConsole() {
       this.$emit("goConsole");
+    },
+    goReadFile(record) {
+      // const filePath = this.uploadPath + record.filename;
+      this.$emit("goReadFile", this.uploadPath, record.filename);
+    },
+    handleAddFolder() {
+      this.addFileFolderVisible = true;
+      this.addFileOrFolderType = 1;
+      this.fileFolderName = "";
+    },
+    handleAddFile() {
+      this.addFileFolderVisible = true;
+      this.addFileOrFolderType = 2;
+      this.fileFolderName = "";
+    },
+    // 确认新增文件  目录
+    startAddFileFolder() {
+      const params = {
+        nodeId: this.nodeId,
+        id: this.projectId,
+        levelName: this.uploadPath,
+        filename: this.fileFolderName,
+        unFolder: this.addFileOrFolderType === 1 ? false : true,
+      };
+      newFileFolder(params).then((res) => {
+        if (res.code === 200) {
+          this.$notification.success({
+            message: res.msg,
+          });
+          this.addFileFolderVisible = false;
+          this.loadData();
+          this.loadFileList();
+        }
+      });
     },
   },
 };
@@ -615,9 +720,6 @@ export default {
 }
 .filter {
   margin: 0 0 10px;
-}
-.ant-btn {
-  margin-right: 10px;
 }
 .successTag {
   height: 32px;

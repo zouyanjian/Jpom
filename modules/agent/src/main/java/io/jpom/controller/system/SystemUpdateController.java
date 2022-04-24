@@ -1,3 +1,25 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.controller.system;
 
 import cn.hutool.core.io.FileUtil;
@@ -9,13 +31,10 @@ import cn.hutool.core.util.URLUtil;
 import cn.hutool.http.HttpStatus;
 import cn.jiangzeyin.common.JsonMessage;
 import cn.jiangzeyin.controller.multipart.MultipartFileBuilder;
-import io.jpom.JpomAgentApplication;
 import io.jpom.JpomApplication;
-import io.jpom.common.BaseAgentController;
-import io.jpom.common.JpomManifest;
-import io.jpom.common.RemoteVersion;
-import io.jpom.common.Type;
+import io.jpom.common.*;
 import io.jpom.system.AgentConfigBean;
+import io.jpom.system.ConfigBean;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -53,15 +72,16 @@ public class SystemUpdateController extends BaseAgentController {
 		File file = JpomManifest.zipFileFind(path, Type.Agent, absolutePath);
 		path = FileUtil.getAbsolutePath(file);
 		// 基础检查
-		JsonMessage<Tuple> error = JpomManifest.checkJpomJar(path, JpomAgentApplication.class);
+		JsonMessage<Tuple> error = JpomManifest.checkJpomJar(path, Type.Agent);
 		if (error.getCode() != HttpStatus.HTTP_OK) {
 			return error.toString();
 		}
-		String version = error.getMsg();
+		Tuple data = error.getData();
+		String version = data.get(0);
 		JpomManifest.releaseJar(path, version);
 		//
 		JpomApplication.restart();
-		return JsonMessage.getString(200, "升级中大约需要30秒");
+		return JsonMessage.getString(200, Const.UPGRADE_MSG);
 	}
 
 	@PostMapping(value = "change_log", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -86,5 +106,17 @@ public class SystemUpdateController extends BaseAgentController {
 	public String checkVersion() {
 		RemoteVersion remoteVersion = RemoteVersion.loadRemoteInfo();
 		return JsonMessage.getString(200, "", remoteVersion);
+	}
+
+	/**
+	 * 远程下载升级
+	 *
+	 * @return json
+	 * @see RemoteVersion
+	 */
+	@PostMapping(value = "remote_upgrade.json", produces = MediaType.APPLICATION_JSON_VALUE)
+	public String upgrade() throws IOException {
+		RemoteVersion.upgrade(ConfigBean.getInstance().getTempPath().getAbsolutePath());
+		return JsonMessage.getString(200, Const.UPGRADE_MSG);
 	}
 }

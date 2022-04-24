@@ -1,6 +1,13 @@
 import Vue from "vue";
 import Router from "vue-router";
 
+// NavigationDuplicated: Avoided redundant navigation to current location: "xxxx".
+const originalPush = Router.prototype.push;
+
+Router.prototype.push = function push(location) {
+  return originalPush.call(this, location).catch((err) => err);
+};
+
 Vue.use(Router);
 
 const children = [
@@ -15,14 +22,56 @@ const children = [
     component: () => import("../pages/node/list"),
   },
   {
-    path: "/node/ssh",
-    name: "node-ssh",
-    component: () => import("../pages/node/ssh"),
+    path: "/docker/list",
+    name: "docker-list",
+    component: () => import("../pages/docker/list"),
   },
   {
-    path: "/node/update",
-    name: "node-update",
-    component: () => import("../pages/node/update"),
+    path: "/docker/swarm",
+    name: "docker-swarm",
+    component: () => import("../pages/docker/swarm/list"),
+  },
+
+  {
+    path: "/node/stat",
+    name: "node-stat",
+    component: () => import("../pages/node/stat"),
+  },
+  {
+    path: "/node/search",
+    name: "node-search",
+    component: () => import("../pages/node/search"),
+  },
+  {
+    path: "/node/script-all",
+    name: "node-script-list-all",
+    component: () => import("../pages/node/script-list"),
+  },
+  {
+    path: "/script/script-list",
+    name: "script-list-all",
+    component: () => import("../pages/script/script-list"),
+  },
+  {
+    path: "/script/script-log",
+    name: "script-log",
+    component: () => import("../pages/script/script-log"),
+  },
+
+  {
+    path: "/ssh",
+    name: "node-ssh",
+    component: () => import("../pages/ssh/ssh"),
+  },
+  {
+    path: "/ssh/command",
+    name: "node-command",
+    component: () => import("../pages/ssh/command"),
+  },
+  {
+    path: "/ssh/command-log",
+    name: "node-command-log",
+    component: () => import("../pages/ssh/command-log"),
   },
   {
     path: "/dispatch/list",
@@ -60,11 +109,6 @@ const children = [
     component: () => import("../pages/repository/list"),
   },
   {
-    path: "/build/list",
-    name: "build-list",
-    component: () => import("../pages/build/list"),
-  },
-  {
     path: "/build/list-info",
     name: "build-list-info",
     component: () => import("../pages/build/list-info"),
@@ -79,15 +123,15 @@ const children = [
     name: "user-list",
     component: () => import("../pages/user"),
   },
-  {
-    path: "/role/list",
-    name: "role-list",
-    component: () => import("../pages/role"),
-  },
+  // {
+  //   path: "/role/list",
+  //   name: "role-list",
+  //   component: () => import("../pages/role"),
+  // },
   {
     path: "/operation/log",
     name: "operation-log",
-    component: () => import("../pages/operation-log"),
+    component: () => import("../pages/user/operation-log"),
   },
   {
     path: "/system/mail",
@@ -114,10 +158,17 @@ const children = [
     name: "system-config",
     component: () => import("../pages/system/config"),
   },
+  // 数据库备份
   {
-    path: "/node/search",
-    name: "node-search",
-    component: () => import("../pages/node/search"),
+    path: "/system/backup",
+    name: "system-backup",
+    component: () => import("../pages/system/backup"),
+  },
+  // 工作空间
+  {
+    path: "/system/workspace",
+    name: "system-workspace",
+    component: () => import("../pages/system/workspace"),
   },
 ];
 
@@ -144,7 +195,7 @@ const router = new Router({
     {
       path: "/install",
       name: "install",
-      component: () => import("../pages/install"),
+      component: () => import("../pages/login/install"),
     },
     {
       path: "*",

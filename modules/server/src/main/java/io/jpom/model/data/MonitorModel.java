@@ -1,9 +1,37 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.model.data;
 
+import cn.hutool.core.util.StrUtil;
+import com.alibaba.fastjson.JSON;
 import io.jpom.model.BaseEnum;
 import io.jpom.model.BaseJsonModel;
-import io.jpom.model.BaseModel;
-import io.jpom.model.Cycle;
+import io.jpom.model.BaseWorkspaceModel;
+import io.jpom.service.h2db.TableName;
+import io.jpom.util.StringUtil;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 
 import java.util.List;
 
@@ -12,107 +40,108 @@ import java.util.List;
  *
  * @author Arno
  */
-public class MonitorModel extends BaseModel {
+@EqualsAndHashCode(callSuper = true)
+@TableName(value = "MONITOR_INFO", name = "监控信息")
+@Data
+public class MonitorModel extends BaseWorkspaceModel {
+
+    private String name;
     /**
      * 监控的项目
      */
-    private List<NodeProject> projects;
+    private String projects;
     /**
      * 报警联系人
      */
-    private List<String> notifyUser;
+    private String notifyUser;
     /**
      * 异常后是否自动重启
      */
-    private boolean autoRestart;
+    private Boolean autoRestart;
     /**
      * 监控周期
+     *
+     * @see io.jpom.model.Cycle
      */
-    private int cycle = Cycle.thirty.getCode();
+    @Deprecated
+    private Integer cycle;
     /**
-     * 创建人
+     * 监控定时周期
      */
-    private String parent;
-    /**
-     * 最后修改时间
-     */
-    private long modifyTime;
+    private String execCron;
     /**
      * 监控开启状态
      */
-    private boolean status;
+    private Boolean status;
     /**
      * 报警状态
      */
-    private boolean alarm;
+    private Boolean alarm;
+    /**
+     * webhook
+     */
+    private String webhook;
 
-    public boolean isAlarm() {
-        return alarm;
+    public String getExecCron() {
+        if (execCron == null) {
+            // 兼容旧版本
+            if (cycle != null) {
+                return String.format("0 0/%s * * * ?", cycle);
+            }
+        }
+        return execCron;
     }
 
-    public void setAlarm(boolean alarm) {
-        this.alarm = alarm;
+    public boolean autoRestart() {
+        return autoRestart != null && autoRestart;
     }
 
-    public List<NodeProject> getProjects() {
-        return projects;
+    /**
+     * 开启状态
+     *
+     * @return true 启用
+     */
+    public boolean status() {
+        return status != null && status && StrUtil.isNotEmpty(getExecCron());
     }
 
-    public void setProjects(List<NodeProject> projects) {
-        this.projects = projects;
-    }
-
-    public List<String> getNotifyUser() {
-        return notifyUser;
-    }
-
-    public void setNotifyUser(List<String> notifyUser) {
-        this.notifyUser = notifyUser;
+    public List<NodeProject> projects() {
+        return StringUtil.jsonConvertArray(projects, NodeProject.class);
     }
 
 
-    public boolean isAutoRestart() {
-        return autoRestart;
+    public String getProjects() {
+        List<NodeProject> projects = projects();
+        return projects == null ? null : JSON.toJSONString(projects);
     }
 
-    public void setAutoRestart(boolean autoRestart) {
-        this.autoRestart = autoRestart;
+    public void projects(List<NodeProject> projects) {
+        if (projects == null) {
+            this.projects = null;
+        } else {
+            this.projects = JSON.toJSONString(projects);
+        }
     }
 
-    public int getCycle() {
-        return cycle;
+    public List<String> notifyUser() {
+        return StringUtil.jsonConvertArray(notifyUser, String.class);
     }
 
-    public void setCycle(int cycle) {
-        this.cycle = cycle;
+    public String getNotifyUser() {
+        List<String> object = notifyUser();
+        return object == null ? null : JSON.toJSONString(object);
     }
 
-    public String getParent() {
-        return parent;
-    }
-
-    public void setParent(String parent) {
-        this.parent = parent;
-    }
-
-    public long getModifyTime() {
-        return modifyTime;
-    }
-
-    public void setModifyTime(long modifyTime) {
-        this.modifyTime = modifyTime;
-    }
-
-    public boolean isStatus() {
-        return status;
-    }
-
-    public void setStatus(boolean status) {
-        this.status = status;
+    public void notifyUser(List<String> notifyUser) {
+        if (notifyUser == null) {
+            this.notifyUser = null;
+        } else {
+            this.notifyUser = JSON.toJSONString(notifyUser);
+        }
     }
 
     public boolean checkNodeProject(String nodeId, String projectId) {
-        List<NodeProject> projects = getProjects();
+        List<NodeProject> projects = projects();
         if (projects == null) {
             return false;
         }
@@ -132,6 +161,7 @@ public class MonitorModel extends BaseModel {
         return false;
     }
 
+    @Getter
     public enum NotifyType implements BaseEnum {
         /**
          * 通知方式
@@ -139,7 +169,7 @@ public class MonitorModel extends BaseModel {
         dingding(0, "钉钉"),
         mail(1, "邮箱"),
         workWx(2, "企业微信"),
-//        sms(2, "短信"),
+        webhook(3, "webhook"),
         ;
 
         private final int code;
@@ -148,16 +178,6 @@ public class MonitorModel extends BaseModel {
         NotifyType(int code, String desc) {
             this.code = code;
             this.desc = desc;
-        }
-
-        @Override
-        public int getCode() {
-            return code;
-        }
-
-        @Override
-        public String getDesc() {
-            return desc;
         }
     }
 
@@ -194,7 +214,13 @@ public class MonitorModel extends BaseModel {
     }
 
     public static class NodeProject extends BaseJsonModel {
+        /**
+         * 节点 ID
+         */
         private String node;
+        /**
+         * 被监控的项目ID
+         */
         private List<String> projects;
 
         public String getNode() {

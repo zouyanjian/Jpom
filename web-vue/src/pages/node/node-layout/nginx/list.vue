@@ -1,52 +1,66 @@
 <template>
   <!-- 布局 -->
-  <a-layout class="file-layout">
+
+  <a-layout class="file-layout node-full-content">
     <!-- 目录树 -->
-    <a-layout-sider theme="light" class="sider" width="25%">
+    <a-layout-sider theme="light" class="nginx-sider" width="25%">
       <a-empty v-if="treeList.length === 0" />
-      <el-tree ref="tree" :data="treeList" :props="defaultProps" :expand-on-click-node="false" node-key="$treeNodeId" highlight-current default-expand-all @node-click="nodeClick"></el-tree>
+      <a-directory-tree :treeData="treeList" :replace-fields="defaultProps" @select="nodeClick"></a-directory-tree>
     </a-layout-sider>
     <!-- 表格 -->
     <a-layout-content class="file-content">
-      <div ref="filter" class="filter">
-        <a-button type="primary" @click="handleAdd">新增配置</a-button>
-        <a-button type="primary" @click="handleFilter">刷新</a-button>
-        <a-switch v-model="nginxData.status" checked-children="运行中" un-checked-children="未运行" disabled />
-        <a-dropdown>
-          <a class="ant-dropdown-link" @click="(e) => e.preventDefault()">
-            更多操作
-            <a-icon type="down" />
-          </a>
-          <a-menu slot="overlay">
-            <a-menu-item>
-              <a-button type="primary" @click="handleEditNginx">编辑 Nginx 服务</a-button>
-            </a-menu-item>
-            <a-menu-item>
-              <a-button :disabled="nginxData.status" type="primary" @click="handleNginxCommand('open')">启动 Nginx</a-button>
-            </a-menu-item>
-            <a-menu-item>
-              <a-button :disabled="!nginxData.status" type="danger" @click="handleNginxCommand('reload')">重新加载 Nginx</a-button>
-            </a-menu-item>
-            <a-menu-item>
-              <a-button :disabled="!nginxData.status" type="danger" @click="handleNginxCommand('close')">停止 Nginx</a-button>
-            </a-menu-item>
-          </a-menu>
-        </a-dropdown>
-      </div>
-      <a-table
-        :data-source="fileList"
-        :loading="loading"
-        :columns="columns"
-        :pagination="false"
-        bordered
-        :style="{ 'max-height': tableHeight + 'px' }"
-        :scroll="{ y: tableHeight - 60 }"
-        :rowKey="(record, index) => index"
-      >
+      <a-table size="middle" :data-source="fileList" :loading="loading" :columns="columns" :pagination="false" bordered :rowKey="(record, index) => index">
+        <template slot="title">
+          <a-space>
+            <div>
+              查询：
+              <a-switch v-model="listData.showAll" checked-children="显示所有" un-checked-children="显示正常" />
+            </div>
+            <a-button size="small" type="primary" @click="handleFilter">刷新</a-button>
+            <a-button size="small" type="primary" @click="handleAdd">新增配置</a-button>
+            ｜
+            <a-switch v-model="nginxData.status" checked-children="运行中" un-checked-children="未运行" disabled />
+            <a-dropdown>
+              <a class="ant-dropdown-link" @click="(e) => e.preventDefault()">
+                更多操作
+                <a-icon type="down" />
+              </a>
+              <a-menu slot="overlay">
+                <a-menu-item>
+                  <a-button type="primary" @click="handleEditNginx">编辑 Nginx 服务</a-button>
+                </a-menu-item>
+                <a-menu-item>
+                  <a-button :disabled="nginxData.status" type="primary" @click="handleNginxCommand('open')">启动 Nginx</a-button>
+                </a-menu-item>
+                <a-menu-item>
+                  <a-button :disabled="!nginxData.status" type="danger" @click="handleNginxCommand('reload')">重新加载 Nginx</a-button>
+                </a-menu-item>
+                <a-menu-item>
+                  <a-button :disabled="!nginxData.status" type="danger" @click="handleNginxCommand('close')">停止 Nginx</a-button>
+                </a-menu-item>
+              </a-menu>
+            </a-dropdown>
+            <a-tooltip>
+              <template slot="title">
+                <div>nginx 管理是指在想编辑配置文件，并自动重新加载(reload)</div>
+
+                <div>
+                  <ul>
+                    <li>linux 服务器默认执行 nginx -s reload 、service xxxx start、service xxxx top</li>
+                    <li>linux 服务器如果为编译安装则需要将 nginx 服务名称配置到 nginx执行文件的绝对路径，如 <b>/usr/local/nginx/sbin/nginx</b></li>
+                    <li>windows 服务器是需要提前安装 nginx 并配置服务,默认执行 net start xxxx、net stop xxxx、net、sc query xxxx</li>
+                  </ul>
+                </div>
+              </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </a-space>
+        </template>
         <a-tooltip slot="name" slot-scope="text, record" placement="topLeft" :title="`名称：${text}  server 节点数 ${record.serverCount}`">
-          <div @click="handleEdit(record)" style="color: blue">
+          <div @click="handleEdit(record)" :style="`${record.name.endsWith('.conf') ? 'color: blue' : ''}`">
+            <a-icon v-if="record.name.endsWith('.conf')" type="edit" />
+            <a-icon v-else type="eye" />
             <span>{{ text }}</span>
-            <a-icon type="edit" />
           </div>
         </a-tooltip>
         <!-- <a-tooltip slot="isDirectory" slot-scope="text" placement="topLeft" :title="text">
@@ -63,7 +77,20 @@
         </a-tooltip>
         <template slot="operation" slot-scope="text, record">
           <!-- <a-button type="primary" @click="handleEdit(record)">编辑</a-button> -->
-          <a-button type="danger" @click="handleDelete(record)">删除</a-button>
+          <a-popover title="删除确认" v-if="record.name.endsWith('.conf')">
+            <template slot="content">
+              <p><a-button size="small" type="danger" @click="handleDelete(record, 'temp', 'none')">临时删除</a-button></p>
+              <p><a-button size="small" type="danger" @click="handleDelete(record, 'real', 'none')">永久删除</a-button></p>
+            </template>
+            <a-button size="small" type="danger">删除</a-button>
+          </a-popover>
+          <a-popover title="还原" v-else>
+            <template slot="content">
+              <p><a-button size="small" type="danger" @click="handleDelete(record, 'temp', 'back')">还原配置</a-button></p>
+              <p><a-button size="small" type="danger" @click="handleDelete(record, 'real', 'back')">永久删除</a-button></p>
+            </template>
+            <a-button size="small" type="danger">还原</a-button>
+          </a-popover>
         </template>
       </a-table>
       <!-- 编辑区 -->
@@ -95,17 +122,7 @@
   </a-layout>
 </template>
 <script>
-import {
-  getNginxDirectoryList,
-  getNginxFileList,
-  editNginxConfig,
-  deleteNginxConfig,
-  loadNginxWhiteList,
-  loadNginxConfig,
-  loadNginxData,
-  doNginxCommand,
-  editNginxServerName,
-} from "../../../../api/node-nginx";
+import { getNginxDirectoryList, getNginxFileList, editNginxConfig, deleteNginxConfig, loadNginxWhiteList, loadNginxConfig, loadNginxData, doNginxCommand, editNginxServerName } from "@/api/node-nginx";
 
 import codeEditor from "@/components/codeEditor";
 
@@ -127,12 +144,15 @@ export default {
       nginxData: {},
       temp: {},
       tempNode: {},
-      tableHeight: "80vh",
+      listData: {
+        showAll: false,
+      },
+      // tableHeight: "80vh",
       editNginxVisible: false,
       editNginxNameVisible: false,
       defaultProps: {
-        children: "children",
-        label: "title",
+        // children: "children",
+        title: "title",
       },
       columns: [
         { title: "文件名称", dataIndex: "name", ellipsis: true, scopedSlots: { customRender: "name" } },
@@ -141,7 +161,7 @@ export default {
         { title: "域名", dataIndex: "serverName", width: 140, ellipsis: true, scopedSlots: { customRender: "serverName" } },
         { title: "location", dataIndex: "location", width: 140, ellipsis: true, scopedSlots: { customRender: "location" } },
         { title: "修改时间", dataIndex: "time", width: 140, ellipsis: true, scopedSlots: { customRender: "time" } },
-        { title: "操作", dataIndex: "operation", scopedSlots: { customRender: "operation" }, width: 90 },
+        { title: "操作", dataIndex: "operation", scopedSlots: { customRender: "operation" }, width: 60 },
       ],
       rules: {
         name: [{ required: true, message: "Please input name", trigger: "blur" }],
@@ -151,14 +171,14 @@ export default {
     };
   },
   mounted() {
-    this.calcTableHeight();
+    // this.calcTableHeight();
     this.handleFilter();
   },
   methods: {
-    // 计算表格高度
-    calcTableHeight() {
-      this.tableHeight = window.innerHeight - this.$refs["filter"].clientHeight - 175;
-    },
+    // // 计算表格高度
+    // calcTableHeight() {
+    //   this.tableHeight = window.innerHeight - this.$refs["filter"].clientHeight - 175;
+    // },
     // 加载 Nginx 数据
     loadNginxData() {
       const params = {
@@ -180,16 +200,15 @@ export default {
       };
       getNginxDirectoryList(params).then((res) => {
         if (res.code === 200) {
-          // 添加一个唯一标识
-          const list = res.data.map((item, i) => {
-            item["$treeNodeId"] = 1 + i;
-            return item;
-          });
-          this.treeList = list;
+          // // 添加一个唯一标识
+          // const list = res.data.map((item, i) => {
+          //   return item;
+          // });
+          this.treeList = res.data;
         }
         // 取出第一个默认选中
         this.$nextTick(() => {
-          const node = this.$refs["tree"].getNode(1);
+          const node = this.treeList[0];
           if (node) {
             this.tempNode = node;
             this.loadFileList();
@@ -199,9 +218,9 @@ export default {
       });
     },
     // 点击树节点
-    nodeClick(data, node) {
-      if (data.children) {
-        this.tempNode = node;
+    nodeClick(selectedKeys, { node }) {
+      if (node.dataRef) {
+        this.tempNode = node.dataRef;
         this.loadFileList();
       }
     },
@@ -218,8 +237,9 @@ export default {
       // 请求参数
       const params = {
         nodeId: this.node.id,
-        whitePath: this.tempNode.data.whitePath,
-        name: this.tempNode.data.path,
+        whitePath: this.tempNode.whitePath,
+        name: this.tempNode.path,
+        showAll: this.listData.showAll,
       };
       // 加载文件
       getNginxFileList(params).then((res) => {
@@ -281,7 +301,6 @@ export default {
             // 成功
             this.$notification.success({
               message: res.msg,
-              duration: 2,
             });
             this.$refs["editNginxForm"].resetFields();
             this.editNginxVisible = false;
@@ -292,10 +311,16 @@ export default {
       });
     },
     // 删除
-    handleDelete(record) {
+    handleDelete(record, type, from) {
+      let msg;
+      if (from === "back") {
+        msg = "真的要" + (type === "real" ? "永久删除文件么？" : "还原配置文件么？");
+      } else {
+        msg = "真的要" + (type === "real" ? "永久" : "临时") + "删除文件么？";
+      }
       this.$confirm({
         title: "系统提示",
-        content: "真的要删除文件么？",
+        content: msg,
         okText: "确认",
         cancelText: "取消",
         onOk: () => {
@@ -304,13 +329,14 @@ export default {
             nodeId: this.node.id,
             path: record.path,
             name: record.relativePath,
+            type: type,
+            from: from,
           };
           // 删除
           deleteNginxConfig(params).then((res) => {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
               //this.loadDirectoryList();
               this.loadFileList();
@@ -338,7 +364,6 @@ export default {
           if (res.code === 200) {
             this.$notification.success({
               message: res.msg,
-              duration: 2,
             });
             this.$refs["editNginxNameForm"].resetFields();
             this.editNginxNameVisible = false;
@@ -357,7 +382,6 @@ export default {
         if (res.code === 200) {
           this.$notification.success({
             message: res.msg,
-            duration: 2,
           });
           this.loadNginxData();
         }
@@ -369,23 +393,19 @@ export default {
 <style scoped>
 .file-layout {
   padding: 0;
+  margin: 0;
 }
-.sider {
+.nginx-sider {
   border: 1px solid #e2e2e2;
-  height: calc(100vh - 130px);
-  overflow-y: auto;
+  /* height: calc(100vh - 130px); */
+  /* overflow-y: auto; */
+  overflow-x: auto;
 }
 .file-content {
-  height: calc(100vh - 150px);
-  overflow-y: hidden;
-  margin: 10px 10px 0;
+  /* height: calc(100vh - 150px); */
+  /* overflow-y: hidden; */
+  /* margin: 10px 10px 0; */
   padding: 10px;
   background-color: #fff;
-}
-.filter {
-  margin: 0 0 10px;
-}
-.ant-btn {
-  margin-right: 10px;
 }
 </style>

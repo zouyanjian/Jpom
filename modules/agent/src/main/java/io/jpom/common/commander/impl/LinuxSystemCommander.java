@@ -1,6 +1,31 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.common.commander.impl;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.convert.Convert;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.text.CharPool;
 import cn.hutool.core.text.StrSplitter;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.StrUtil;
@@ -49,8 +74,8 @@ public class LinuxSystemCommander extends AbstractSystemCommander {
 	}
 
 	@Override
-	public List<ProcessModel> getProcessList() {
-		String s = CommandUtil.execSystemCommand("top -b -n 1 | grep java");
+	public List<ProcessModel> getProcessList(String processName) {
+		String s = CommandUtil.execSystemCommand("top -b -n 1 | grep " + processName);
 		return formatLinuxTop(s, false);
 	}
 
@@ -150,8 +175,8 @@ public class LinuxSystemCommander extends AbstractSystemCommander {
 		if (StrUtil.isEmpty(info)) {
 			return null;
 		}
-		int index = info.indexOf(":") + 1;
-		String[] split = info.substring(index).split(",");
+		int index = info.indexOf(CharPool.COLON) + 1;
+		String[] split = info.substring(index).split(StrUtil.COMMA);
 //            509248k total — 物理内存总量（509M）
 //            495964k used — 使用中的内存总量（495M）
 //            13284k free — 空闲内存总量（13M）
@@ -183,12 +208,13 @@ public class LinuxSystemCommander extends AbstractSystemCommander {
 	 * @param info cpu信息
 	 * @return cpu信息
 	 */
-	private static String getLinuxCpu(String info) {
-		if (StrUtil.isEmpty(info)) {
+	public static String getLinuxCpu(String info) {
+		List<String> strings = StrUtil.splitTrim(info, StrUtil.COLON);
+		String last = CollUtil.getLast(strings);
+		List<String> list = StrUtil.splitTrim(last, StrUtil.COMMA);
+		if (CollUtil.isEmpty(list)) {
 			return null;
 		}
-		int i = info.indexOf(":");
-		String[] split = info.substring(i + 1).split(",");
 //            1.3% us — 用户空间占用CPU的百分比。
 //            1.0% sy — 内核空间占用CPU的百分比。
 //            0.0% ni — 改变过优先级的进程占用CPU的百分比
@@ -196,17 +222,13 @@ public class LinuxSystemCommander extends AbstractSystemCommander {
 //            0.0% wa — IO等待占用CPU的百分比
 //            0.3% hi — 硬中断（Hardware IRQ）占用CPU的百分比
 //            0.0% si — 软中断（Software Interrupts）占用CPU的百分比
-		for (String str : split) {
-			str = str.trim();
-			String value = str.substring(0, str.length() - 2).trim();
-			String tag = str.substring(str.length() - 2);
-			if ("id".equalsIgnoreCase(tag)) {
-				value = value.replace("%", "");
-				double val = Convert.toDouble(value, 0.0);
-				return String.format("%.2f", 100.00 - val);
-			}
+		String value = list.stream().filter(s -> StrUtil.endWithIgnoreCase(s, "us")).map(s -> StrUtil.removeSuffixIgnoreCase(s, "us")).findAny().orElse(null);
+		Double val = Convert.toDouble(value);
+		if (val == null) {
+			return null;
 		}
-		return "0";
+		// return String.format("%.2f", 100.00 - val);
+		return String.format("%.2f", val);
 	}
 
 	@Override
@@ -224,7 +246,7 @@ public class LinuxSystemCommander extends AbstractSystemCommander {
 	public String startService(String serviceName) {
 		if (StrUtil.startWith(serviceName, StrUtil.SLASH)) {
 			try {
-				CommandUtil.asyncExeLocalCommand(new File(SystemUtil.getUserInfo().getHomeDir()), serviceName);
+				CommandUtil.asyncExeLocalCommand(FileUtil.file(SystemUtil.getUserInfo().getHomeDir()), serviceName);
 				return "ok";
 			} catch (Exception e) {
 				DefaultSystemLog.getLog().error("执行异常", e);

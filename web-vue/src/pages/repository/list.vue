@@ -1,21 +1,25 @@
 <template>
-  <div>
+  <div class="full-content">
     <!-- 搜索区 -->
-    <div ref="filter" class="filter">
-      <a-select v-model="listQuery.repoType" allowClear placeholder="请选择仓库类型" class="filter-item" @change="handleFilter">
-        <a-select-option :value="'0'">GIT</a-select-option>
-        <a-select-option :value="'1'">SVN</a-select-option>
-      </a-select>
-      <a-select v-if="isSystem" default-value="0" v-model="listQuery.strike" allowClear placeholder="选择删除情况" class="filter-item" @change="handleFilter">
-        <a-select-option :value="0">未删除</a-select-option>
-        <a-select-option :value="1">已删除</a-select-option>
-      </a-select>
-      <a-button type="primary" @click="handleFilter">搜索</a-button>
-      <a-button type="primary" @click="handleAdd">新增</a-button>
-      <a-button type="primary" @click="loadData">刷新</a-button>
-    </div>
+    <!-- <div ref="filter" class="filter"></div> -->
     <!-- 表格 -->
-    <a-table :loading="loading" :columns="columns" :data-source="list" :style="{ 'max-height': tableHeight + 'px' }" :scroll="{ y: tableHeight - 120 }" bordered rowKey="id" :pagination="pagination">
+    <a-table size="middle" :columns="columns" :data-source="list" bordered rowKey="id" :pagination="this.listQuery.total / this.listQuery.limit > 1 ? (this, pagination) : false" @change="changePage">
+      <template slot="title">
+        <a-space>
+          <a-input class="search-input-item" @pressEnter="loadData" v-model="listQuery['%name%']" placeholder="仓库名称" />
+          <a-input class="search-input-item" @pressEnter="loadData" v-model="listQuery['%gitUrl%']" placeholder="仓库地址" />
+          <a-select v-model="listQuery.repoType" allowClear placeholder="仓库类型" class="search-input-item">
+            <a-select-option :value="'0'">GIT</a-select-option>
+            <a-select-option :value="'1'">SVN</a-select-option>
+          </a-select>
+
+          <a-tooltip title="按住 Ctr 或者 Alt/Option 键点击按钮快速回到第一页">
+            <a-button type="primary" :loading="loading" @click="loadData">搜索</a-button>
+          </a-tooltip>
+          <a-button type="primary" @click="handleAdd">新增</a-button>
+          <a-button type="primary" @click="handleAddGitee">通过私人令牌导入仓库</a-button>
+        </a-space>
+      </template>
       <a-tooltip slot="name" slot-scope="text" placement="topLeft" :title="text">
         <span>{{ text }}</span>
       </a-tooltip>
@@ -34,9 +38,10 @@
         <span v-else>{{ record.gitUrl.indexOf("http") > -1 ? "HTTP(S)" : "SSH" }}</span>
       </template>
       <template slot="operation" slot-scope="text, record">
-        <a-button type="primary" @click="handleEdit(record)">编辑</a-button>
-        <a-button type="danger" @click="handleDelete(record)">删除</a-button>
-        <a-button v-if="isSystem && record.strike === 1" type="primary" @click="handlerecovery(record)">恢复</a-button>
+        <a-space>
+          <a-button type="primary" size="small" @click="handleEdit(record)">编辑</a-button>
+          <a-button type="danger" size="small" @click="handleDelete(record)">删除</a-button>
+        </a-space>
       </template>
     </a-table>
     <!-- 编辑区 -->
@@ -108,51 +113,100 @@
               <a-textarea :auto-size="{ minRows: 3, maxRows: 3 }" v-model="temp.rsaPrv" placeholder="私钥,不填将使用默认的 $HOME/.ssh 目录中的配置。支持配置文件目录:file:"></a-textarea>
             </a-tooltip>
           </a-form-model-item>
-          <!-- 公钥暂时没用用到 -->
+          <!-- 公钥暂时没用到 -->
           <a-form-model-item label="公钥" prop="rsaPub" v-if="false">
             <a-textarea :auto-size="{ minRows: 3, maxRows: 3 }" v-model="temp.rsaPub" placeholder="公钥,不填将使用默认的 $HOME/.ssh 目录中的配置。支持配置文件目录:file:"></a-textarea>
           </a-form-model-item>
         </template>
-        <a-form-model-item v-if="temp.id">
-            <template slot="label">
-              隐藏字段
-              <a-tooltip>
-                <template slot="title"> 密码字段和私钥字段在编辑的时候不会返回，如果需要重置或者清空就请点我 </template>
-                <a-icon type="question-circle" theme="filled" />
-              </a-tooltip>
-            </template>
-            <a-button style="margin-left: 10px" type="danger" @click="restHideField(temp)">清除</a-button>
-          </a-form-model-item>
+        <a-form-model-item v-if="temp.id" prop="restHideField">
+          <template slot="label">
+            隐藏字段
+            <a-tooltip>
+              <template slot="title"> 密码字段和私钥字段在编辑的时候不会返回，如果需要重置或者清空就请点我 </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-button style="margin-left: 10px" type="danger" @click="restHideField(temp)">清除</a-button>
+        </a-form-model-item>
       </a-form-model>
+    </a-modal>
+    <a-modal v-model="giteeImportVisible" title="导入仓库" width="80%" :footer="null" :maskClosable="false">
+      <a-form-model :label-col="{ span: 4 }" :rules="giteeImportFormRules" :model="giteeImportForm" ref="giteeImportForm" :wrapper-col="{ span: 20 }">
+        <a-form-model-item prop="token">
+          <template slot="label">
+            私人令牌
+            <a-tooltip>
+              <template slot="title">
+                <ul>
+                  <li>使用私人令牌，可以在你不输入账号密码的情况下对你账号内的仓库进行管理，你可以在创建令牌时指定令牌所拥有的权限。</li>
+                </ul>
+              </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-input-group compact>
+            <a-select v-model="giteeImportForm.type" @change="importTypeChange">
+              <a-select-option value="gitee"> gitee </a-select-option>
+              <a-select-option value="github"> github </a-select-option>
+              <a-select-option value="gitlab"> gitlab </a-select-option>
+            </a-select>
+            <a-tooltip :title="`${giteeImportForm.type} 的令牌${importTypePlaceholder}`">
+              <a-input-search style="width: 55%; margin-top: 1px" enter-button v-model="giteeImportForm.token" @search="handleGiteeImportFormOk" :placeholder="importTypePlaceholder" />
+            </a-tooltip>
+          </a-input-group>
+        </a-form-model-item>
+      </a-form-model>
+      <a-table :loading="loading" :columns="reposColumns" :data-source="repos" bordered rowKey="id" @change="reposChange" :pagination="reposPagination">
+        <template slot="private" slot-scope="text, record">
+          <a-switch :disabled="true" :checked="record.private" />
+        </template>
+        <a-tooltip slot="name" slot-scope="text" placement="topLeft" :title="text">
+          <span>{{ text }}</span>
+        </a-tooltip>
+        <a-tooltip slot="full_name" slot-scope="text" placement="topLeft" :title="text">
+          <span>{{ text }}</span>
+        </a-tooltip>
+        <a-tooltip slot="url" slot-scope="text" placement="topLeft" :title="text">
+          <span>{{ text }}</span>
+        </a-tooltip>
+        <a-tooltip slot="description" slot-scope="text" placement="topLeft" :title="text">
+          <span>{{ text }}</span>
+        </a-tooltip>
+
+        <template slot="operation" slot-scope="text, record">
+          <a-button type="primary" :disabled="record.exists" @click="handleGiteeRepoAdd(record)">{{ record.exists ? "已存在" : "添加" }}</a-button>
+        </template>
+      </a-table>
     </a-modal>
   </div>
 </template>
 <script>
-import { getRepositoryList, editRepository, deleteRepository, recoveryRepository, restHideField } from "../../api/repository";
-import { parseTime } from "../../utils/time";
+import { deleteRepository, editRepository, getRepositoryList, authorizeRepos, restHideField } from "@/api/repository";
+import { parseTime } from "@/utils/time";
+import { PAGE_DEFAULT_LIMIT, PAGE_DEFAULT_LIST_QUERY, PAGE_DEFAULT_SHOW_TOTAL, PAGE_DEFAULT_SIZW_OPTIONS } from "@/utils/const";
 
 export default {
   components: {},
   data() {
     return {
       loading: false,
-      listQuery: {
-        page: 1,
-        limit: 20,
-        strike: 0,
-      },
-      tableHeight: "70vh",
+      listQuery: Object.assign({}, PAGE_DEFAULT_LIST_QUERY),
       list: [],
       total: 0,
       temp: {},
       isSystem: false,
       editVisible: false,
+      giteeImportVisible: false,
+      repos: [],
+      username: null,
+      importTypePlaceholder: "",
       columns: [
-        { title: "仓库名称", dataIndex: "name", width: 150, ellipsis: true, scopedSlots: { customRender: "name" } },
+        { title: "仓库名称", dataIndex: "name", sorter: true, ellipsis: true, scopedSlots: { customRender: "name" } },
         {
           title: "仓库地址",
           dataIndex: "gitUrl",
-          width: 300,
+
+          sorter: true,
           ellipsis: true,
           scopedSlots: { customRender: "gitUrl" },
         },
@@ -160,6 +214,7 @@ export default {
           title: "仓库类型",
           dataIndex: "repoType",
           width: 100,
+          sorter: true,
           ellipsis: true,
           scopedSlots: { customRender: "repoType" },
         },
@@ -167,12 +222,14 @@ export default {
           title: "协议",
           dataIndex: "protocol",
           width: 100,
+          sorter: true,
           ellipsis: true,
           scopedSlots: { customRender: "protocol" },
         },
         {
           title: "修改时间",
           dataIndex: "modifyTimeMillis",
+          sorter: true,
           customRender: (text) => {
             if (!text) {
               return "";
@@ -184,11 +241,36 @@ export default {
         {
           title: "操作",
           dataIndex: "operation",
-          width: 160,
+          align: "center",
+          width: 120,
+          scopedSlots: { customRender: "operation" },
+        },
+      ],
+      reposColumns: [
+        { title: "仓库名称", dataIndex: "name", ellipsis: true, scopedSlots: { customRender: "name" } },
+        { title: "仓库路径", dataIndex: "full_name", ellipsis: true, scopedSlots: { customRender: "full_name" } },
+        { title: "GitUrl", dataIndex: "url", ellipsis: true, scopedSlots: { customRender: "url" } },
+
+        {
+          title: "描述",
+          dataIndex: "description",
+
+          ellipsis: true,
+          scopedSlots: { customRender: "description" },
+        },
+        { title: "私有", dataIndex: "private", width: 80, ellipsis: true, scopedSlots: { customRender: "private" } },
+        {
+          title: "操作",
+          dataIndex: "operation",
+          width: 100,
           scopedSlots: { customRender: "operation" },
           align: "left",
         },
       ],
+      giteeImportForm: Object.assign({ type: "gitee" }, PAGE_DEFAULT_LIST_QUERY),
+      giteeImportFormRules: {
+        token: [{ required: true, message: "请输入私人令牌", trigger: "blur" }],
+      },
       rules: {
         name: [{ required: true, message: "Please input build name", trigger: "blur" }],
         gitUrl: [{ required: true, message: "Please input git url", trigger: "blur" }],
@@ -199,48 +281,52 @@ export default {
     // 分页
     pagination() {
       return {
-        total: this.total,
+        total: this.listQuery.total,
         current: this.listQuery.page || 1,
-        pageSize: this.listQuery.limit || 10,
-        pageSizeOptions: ["10", "20", "50", "100"],
+        pageSize: this.listQuery.limit || PAGE_DEFAULT_LIMIT,
+        pageSizeOptions: PAGE_DEFAULT_SIZW_OPTIONS,
         showSizeChanger: true,
+        showQuickJumper: true,
         showTotal: (total) => {
-          if (total <= this.listQuery.limit) {
-            return "";
-          }
-          return `总计 ${total} 条`;
+          return PAGE_DEFAULT_SHOW_TOTAL(total, this.listQuery);
+        },
+      };
+    },
+    reposPagination() {
+      return {
+        total: this.giteeImportForm.total,
+        current: this.giteeImportForm.page || 1,
+        pageSize: this.giteeImportForm.limit || PAGE_DEFAULT_LIMIT,
+        pageSizeOptions: PAGE_DEFAULT_SIZW_OPTIONS,
+        showSizeChanger: true,
+        showQuickJumper: true,
+        showTotal: (total) => {
+          return PAGE_DEFAULT_SHOW_TOTAL(total, this.giteeImportForm);
         },
       };
     },
   },
   watch: {},
   created() {
-    this.calcTableHeight();
-    this.handleFilter();
-    this.isSystem = this.$store.getters.getUserInfo.systemUser;
+    this.loadData();
   },
   methods: {
-    // 计算表格高度
-    calcTableHeight() {
-      this.$nextTick(() => {
-        this.tableHeight = window.innerHeight - this.$refs["filter"].clientHeight - 135;
-      });
-    },
     // 加载数据
-    loadData() {
-      this.list = [];
+    loadData(pointerEvent) {
+      this.listQuery.page = pointerEvent?.altKey || pointerEvent?.ctrlKey ? 1 : this.listQuery.page;
       this.loading = true;
       getRepositoryList(this.listQuery).then((res) => {
         if (res.code === 200) {
-          this.list = res.data;
+          this.list = res.data.result;
+          this.listQuery.total = res.data.total;
         }
         this.loading = false;
       });
     },
-    // 筛选
-    handleFilter() {
-      this.loadData();
-    },
+    // // 筛选
+    // handleFilter() {
+    //   this.loadData();
+    // },
     // 添加
     handleAdd() {
       this.temp = {
@@ -248,6 +334,49 @@ export default {
         protocol: 0,
       };
       this.editVisible = true;
+    },
+    handleAddGitee() {
+      this.giteeImportVisible = true;
+      this.importTypeChange(this.giteeImportForm.type);
+    },
+    handleGiteeImportFormOk() {
+      this.$refs["giteeImportForm"].validate((valid) => {
+        if (!valid) {
+          return false;
+        }
+        authorizeRepos(this.giteeImportForm).then((res) => {
+          if (res.code === 200) {
+            // 成功
+            //this.username = res.data.username;
+            this.giteeImportForm.total = res.data.total;
+            this.repos = res.data.result;
+          }
+        });
+      });
+    },
+    reposChange(pagination) {
+      this.giteeImportForm.page = pagination.current;
+      this.giteeImportForm.limit = pagination.pageSize;
+      this.handleGiteeImportFormOk();
+    },
+    handleGiteeRepoAdd(record) {
+      editRepository({
+        repoType: 0,
+        protocol: 0,
+        userName: record.username,
+        password: this.giteeImportForm.token,
+        name: record.name,
+        gitUrl: record.url,
+      }).then((res) => {
+        if (res.code === 200) {
+          // 成功
+          this.$notification.success({
+            message: res.msg,
+          });
+          record.exists = true;
+          this.loadData();
+        }
+      });
     },
     // 修改
     handleEdit(record) {
@@ -271,11 +400,10 @@ export default {
             // 成功
             this.$notification.success({
               message: res.msg,
-              duration: 2,
             });
-            this.$refs["editForm"].resetFields();
             this.editVisible = false;
-            this.handleFilter();
+            this.loadData();
+            this.$refs["editForm"].resetFields();
           }
         });
       });
@@ -290,14 +418,13 @@ export default {
         onOk: () => {
           const params = {
             id: record.id,
-            isRealDel: this.isSystem,
+            //isRealDel: this.isSystem,
           };
           // 删除
           deleteRepository(params).then((res) => {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
               this.loadData();
             }
@@ -305,26 +432,7 @@ export default {
         },
       });
     },
-    handlerecovery(record) {
-      this.$confirm({
-        title: "系统提示",
-        content: "真的要恢复仓库信息么？",
-        okText: "确认",
-        cancelText: "取消",
-        onOk: () => {
-          // 恢复
-          recoveryRepository(record.id).then((res) => {
-            if (res.code === 200) {
-              this.$notification.success({
-                message: res.msg,
-                duration: 2,
-              });
-              this.loadData();
-            }
-          });
-        },
-      });
-    },
+
     // 清除隐藏字段
     restHideField(record) {
       this.$confirm({
@@ -338,7 +446,6 @@ export default {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
               this.loadData();
             }
@@ -346,25 +453,38 @@ export default {
         },
       });
     },
+    // 分页、排序、筛选变化时触发
+    changePage(pagination, filters, sorter) {
+      this.listQuery.page = pagination.current;
+      this.listQuery.limit = pagination.pageSize;
+      if (sorter) {
+        this.listQuery.order = sorter.order;
+        this.listQuery.order_field = sorter.field;
+      }
+      this.loadData();
+    },
+    // 在导入仓库时，选择不同的 git 平台显示不同的提示语
+    importTypeChange(val) {
+      if (val === "gitee") {
+        this.importTypePlaceholder = "在 设置-->安全设置-->私人令牌 中获取";
+      } else if (val === "github") {
+        this.importTypePlaceholder = "在 Settings-->Developer settings-->Personal access tokens 中获取";
+      } else if (val === "gitlab") {
+        this.importTypePlaceholder = "在 preferences-->Access Tokens 中获取";
+      } else {
+        this.importTypePlaceholder = "请输入私人令牌";
+      }
+    },
   },
 };
 </script>
 <style scoped>
-.filter {
+/* .filter {
   margin-bottom: 10px;
-}
-
-.ant-btn {
-  margin-right: 10px;
-}
-
-.filter-item {
-  width: 150px;
-  margin-right: 10px;
 }
 
 .btn-add {
   margin-left: 10px;
   margin-right: 0;
-}
+} */
 </style>

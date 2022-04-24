@@ -220,3 +220,83 @@ export function checkVersion(nodeId) {
     data: { nodeId },
   });
 }
+
+/**
+ * 远程升级
+ *@param {String} nodeId 节点 ID
+ */
+export function remoteUpgrade(nodeId) {
+  return axios({
+    url: "/system/remote_upgrade.json",
+    method: "get",
+    timeout: 0,
+    headers: {},
+    data: { nodeId },
+  });
+}
+
+/**
+ * 加载 白名单配置
+ */
+export function getWhitelist() {
+  return axios({
+    url: "/system/get_whitelist",
+    method: "post",
+    data: {},
+  });
+}
+
+/**
+ * 保存 白名单配置
+ */
+export function saveWhitelist(data) {
+  return axios({
+    url: "/system/save_whitelist",
+    method: "post",
+    data: data,
+  });
+}
+
+/**
+ * 加载 节点系统配置缓存信息
+ */
+export function getNodeConfig() {
+  return axios({
+    url: "/system/get_node_config",
+    method: "post",
+    data: {},
+  });
+}
+
+/**
+ * 保存 节点系统配置
+ */
+export function saveNodeConfig(data) {
+  return axios({
+    url: "/system/save_node_config.json",
+    method: "post",
+    data: data,
+  });
+}
+
+/**
+ * 加载 菜单配置信息
+ */
+export function getMenusConfig() {
+  return axios({
+    url: "/system/get_menus_config",
+    method: "post",
+    data: {},
+  });
+}
+
+/**
+ * 保存菜单配置信息
+ */
+export function saveMenusConfig(data) {
+  return axios({
+    url: "/system/save_menus_config.json",
+    method: "post",
+    data: data,
+  });
+}

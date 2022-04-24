@@ -3,18 +3,17 @@ import axios from "axios";
 import Qs from "qs";
 import store from "../store";
 import router from "../router";
-import { NO_NOTIFY_KEY, NO_LOADING_KEY, TOKEN_HEADER_KEY } from "../utils/const";
+import { NO_NOTIFY_KEY, NO_LOADING_KEY, TOKEN_HEADER_KEY, CACHE_WORKSPACE_ID, LOADING_TIP } from "@/utils/const";
 import { refreshToken } from "./user";
 
 import { notification } from "ant-design-vue";
 
 // axios.defaults.baseURL = 'http://localhost:2122'
-let $global_loading;
 let startTime;
 //
-var delTimeout = 20 * 1000;
+const delTimeout = 20 * 1000;
 //
-var apiTimeout = window.apiTimeout === "<apiTimeout>" ? delTimeout : window.apiTimeout;
+const apiTimeout = window.apiTimeout === "<apiTimeout>" ? delTimeout : window.apiTimeout;
 
 const request = axios.create({
   timeout: apiTimeout || delTimeout,
@@ -24,19 +23,20 @@ const request = axios.create({
   responseType: "json",
 });
 
+const pro = process.env.NODE_ENV === "production";
+
 // 请求拦截器
 request.interceptors.request.use(
   (config) => {
     // 如果 headers 里面配置了 loading: no 就不用 loading
     if (!config.headers[NO_LOADING_KEY]) {
-      $global_loading = Vue.prototype.$loading.service({
-        lock: true,
-        text: "加载数据中，请稍候...",
-        spinner: "el-icon-loading",
-        background: "rgba(0, 0, 0, 0.7)",
+      Vue.prototype.$setLoading({
+        spinning: true,
+        tip: config.headers[LOADING_TIP] || "加载数据中，请稍候...",
       });
       startTime = new Date().getTime();
     }
+    delete config.headers[LOADING_TIP];
     // 处理数据
     if (window.routerBase) {
       // 防止 url 出现 //
@@ -46,6 +46,7 @@ request.interceptors.request.use(
       config.data = Qs.stringify(config.data);
     }
     config.headers[TOKEN_HEADER_KEY] = store.getters.getToken;
+    config.headers[CACHE_WORKSPACE_ID] = getWid();
     return config;
   },
   (error) => {
@@ -53,70 +54,51 @@ request.interceptors.request.use(
   }
 );
 
+function getWid() {
+  let wid = router.app.$route.query.wid;
+  if (!wid) {
+    wid = getHashVars().wid;
+  }
+  return wid ? wid : store.getters.getWorkspaceId;
+}
+
+function getHashVars() {
+  var vars = {};
+  location.hash.replace(/[?&]+([^=&]+)=([^&]*)/gi, function (m, key, value) {
+    vars[key] = value;
+  });
+  return vars;
+}
+
 // 响应拦截器
 request.interceptors.response.use(
-  (response) => {
+  async (response) => {
     // 如果 headers 里面配置了 loading: no 就不用 loading
     if (!response.config?.headers[NO_LOADING_KEY]) {
       const endTime = new Date().getTime();
-      if (endTime - startTime < 1000) {
-        setTimeout(() => {
-          $global_loading.close();
-        }, 300);
-      } else {
-        $global_loading.close();
-      }
-    }
-    // 如果 responseType 是 blob 表示是下载文件
-    if (response.request.responseType === "blob") {
-      return response.data;
-    }
-    // 判断返回值，权限等...
-    const res = response.data;
-
-    // 先判断 jwt token 状态
-    if (res.code === 800 || res.code === 801) {
-      return checkJWTToken(res, response);
-    }
-
-    // 禁止访问
-    if (res.code === 900) {
-      notification.error({
-        message: "禁止访问",
-        duration: 2,
+      const waitTime = endTime - startTime < 1000 ? 300 : 0;
+      // 时间过短延迟一定时间
+      await waitTimePromise(waitTime, () => {
+        Vue.prototype.$setLoading(false);
       });
-      router.push("/system/ipAccess");
-      return false;
+      return wrapResult(response);
+    } else {
+      return wrapResult(response);
     }
-
-    // 其他情况
-    if (res.code !== 200) {
-      // 如果 headers 里面配置了 tip: no 就不用弹出提示信息
-      if (!response.config.headers[NO_NOTIFY_KEY]) {
-        notification.error({
-          message: res.msg,
-          description: response.config.url,
-          duration: 2,
-        });
-      }
-    }
-
-    return res;
   },
   (error) => {
     if (!error.response) {
       // 网络异常
-      $global_loading.close();
+      Vue.prototype.$setLoading(false);
       notification.error({
         message: "Network Error",
         description: "网络开了小差！请重试...:" + error,
-        duration: 2,
       });
       return Promise.reject(error);
     }
     // 如果 headers 里面配置了 loading: no 就不用 loading
     if (!error.response.config.headers[NO_LOADING_KEY]) {
-      $global_loading.close();
+      Vue.prototype.$setLoading(false);
     }
     // 如果 headers 里面配置了 tip: no 就不用弹出提示信息
     if (!error.response.config.headers[NO_NOTIFY_KEY]) {
@@ -125,13 +107,11 @@ request.interceptors.response.use(
         notification.error({
           message: "Network Error",
           description: "网络开了小差！请重试...:" + error,
-          duration: 2,
         });
       } else {
         notification.error({
-          message: status,
+          message: "状态码错误 " + status,
           description: (statusText || "") + (data || ""),
-          duration: 2,
         });
       }
     }
@@ -139,15 +119,64 @@ request.interceptors.response.use(
   }
 );
 
+// 等待 x ms
+function waitTimePromise(time, fn) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      fn && fn();
+      resolve();
+    }, time);
+  });
+}
+
+// 判断结果
+function wrapResult(response) {
+  // 如果 responseType 是 blob 表示是下载文件
+  if (response.request.responseType === "blob") {
+    return response.data;
+  }
+  // 判断返回值，权限等...
+  const res = response.data;
+
+  // 先判断 jwt token 状态
+  if (res.code === 800 || res.code === 801) {
+    return checkJWTToken(res, response);
+  }
+
+  // 禁止访问
+  if (res.code === 999) {
+    notification.error({
+      message: "禁止访问",
+      description: "禁止访问,当前IP限制访问",
+    });
+    router.push("/system/ipAccess");
+    return false;
+  }
+
+  // 其他情况
+  if (res.code !== 200) {
+    // 如果 headers 里面配置了 tip: no 就不用弹出提示信息
+    if (!response.config.headers[NO_NOTIFY_KEY]) {
+      notification.error({
+        message: "提示信息 " + (pro ? "" : response.config.url),
+        description: res.msg,
+      });
+      console.error(response.config.url, res);
+    }
+  }
+
+  return res;
+}
+
 // 判断 jwt token 状态
 function checkJWTToken(res, response) {
   // 如果是登录信息失效
   if (res.code === 800) {
     notification.warn({
-      message: res.msg,
-      description: response.config.url,
-      duration: 3,
+      message: "提示信息 " + (pro ? "" : response.config.url),
+      description: res.msg,
     });
+    console.error(response.config.url, res);
     store.dispatch("logOut").then(() => {
       router.push("/login");
       location.reload();
@@ -160,7 +189,6 @@ function checkJWTToken(res, response) {
     notification.info({
       message: "登录信息过期，尝试自动续签...",
       description: "如果不需要自动续签，请修改配置文件。该续签将不会影响页面。",
-      duration: 3,
     });
     // 续签且重试请求
     return redoRequest(response.config);
@@ -184,3 +212,11 @@ function redoRequest(config) {
 }
 
 export default request;
+
+//
+export function loadRouterBase(url, params) {
+  const paramsObj = params || {};
+  paramsObj[CACHE_WORKSPACE_ID] = getWid();
+  const paramsQuery = Qs.stringify(paramsObj);
+  return `${((window.routerBase || "") + url).replace(new RegExp("//", "gm"), "/")}?${paramsQuery}`;
+}

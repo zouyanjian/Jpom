@@ -1,258 +1,215 @@
 <template>
-  <div>
-    <!-- 历史监控数据 -->
-    <a-button v-show="node.cycle && node.cycle !== 0" type="primary" @click="handleHistory">历史监控图表</a-button>
-    <a-divider>图表</a-divider>
+  <div class="node-full-content">
+    <a-divider>
+      图表
+      <!-- 历史监控数据 -->
+      <a-button size="small" v-show="node.cycle && node.cycle !== 0" type="primary" @click="handleHistory"><a-icon type="area-chart" />历史监控图表</a-button>
+    </a-divider>
     <!-- top 图表 -->
     <div id="top-chart">loading...</div>
     <a-divider>进程监控表格</a-divider>
     <!-- 进程表格数据 -->
-    <a-table :loading="loading" :columns="columns" :data-source="processList" :scroll="{x: '80vw'}" bordered rowKey="pid" class="node-table" :pagination="false">
-      <a-tooltip slot="port" slot-scope="text" placement="topLeft" :title="text">
+    <div ref="filter" class="filter">
+      <a-space>
+        <custom-select
+          class="search-input-item"
+          selStyle="width: 200px !important"
+          @change="loadNodeProcess"
+          @addOption="addNodeProcess"
+          v-model="processName"
+          :data="processNames"
+          inputPlaceholder="自定义进程类型"
+          selectPlaceholder="选择进程名"
+          suffixIcon=""
+        >
+          <template slot="suffixIcon"> <a-icon type="down" /></template>
+        </custom-select>
+        <div>
+          <a-tooltip title="重置自定义的进程名信息">
+            <a-icon type="rest" @click="restProcessNames" />
+          </a-tooltip>
+        </div>
+      </a-space>
+    </div>
+    <a-table size="middle" :locale="tableLocale" :loading="loading" :columns="columns" :data-source="processList" bordered rowKey="pid" class="node-table" :pagination="false">
+      <!-- <a-tooltip slot="port" slot-scope="text" placement="topLeft" :title="text">
         <span>{{ text }}</span>
       </a-tooltip>
       <a-tooltip slot="user" slot-scope="text" placement="topLeft" :title="text">
         <span>{{ text }}</span>
-      </a-tooltip>
-      <a-tooltip slot="jpomName" slot-scope="text" placement="topLeft" :title="text">
+      </a-tooltip> -->
+      <a-tooltip slot="tooltip" slot-scope="text" placement="topLeft" :title="text">
         <span>{{ text }}</span>
       </a-tooltip>
       <template slot="operation" slot-scope="text, record">
-        <a-button type="primary" @click="kill(record)">Kill</a-button>
+        <a-button type="primary" size="small" @click="kill(record)">Kill</a-button>
       </template>
     </a-table>
     <!-- 历史监控 -->
     <a-modal v-model="monitorVisible" width="75%" title="历史监控图表" :footer="null" :maskClosable="false">
-      <div ref="filter" class="filter">
-        <a-range-picker class="filter-item" :show-time="{format: 'HH:mm:ss'}" format="YYYY-MM-DD HH:mm:ss" @change="onchange"/>
-        <a-button type="primary" @click="handleFilter">搜索</a-button>
-      </div>
-      <div id="history-chart">loading...</div>
+      <node-top v-if="monitorVisible" :nodeId="this.node.id"></node-top>
     </a-modal>
   </div>
 </template>
 <script>
-import {getNodeTop, getProcessList, killPid, nodeMonitorData} from '../../../api/node';
-import echarts from 'echarts';
+import { nodeMonitorData, getProcessList, killPid } from "@/api/node";
+
+import CustomSelect from "@/components/customSelect";
+import NodeTop from "@/pages/node/node-layout/node-top";
+import { generateNodeTopChart, drawChart } from "@/api/node-stat";
 
 export default {
+  components: {
+    CustomSelect,
+    NodeTop,
+  },
   props: {
     node: {
-      type: Object
-    }
+      type: Object,
+    },
   },
   data() {
     return {
-      topData: {},
       topChartTimer: null,
       loading: false,
+      tableLocale: {
+        emptyText: "",
+      },
       processList: [],
+      delfatulProcessNames: ["java", "python", "mysql", "php", "docker"],
+      processNames: [],
       monitorVisible: false,
-      timeRange: '',
+      timeRange: "",
       historyData: [],
+      processName: "java",
       columns: [
-        {title: '进程 ID', dataIndex: 'pid', width: 100, ellipsis: true, scopedSlots: {customRender: 'pid'}},
-        {title: '进程名称', dataIndex: 'command', width: 150, ellipsis: true, scopedSlots: {customRender: 'command'}},
-        {title: '端口', dataIndex: 'port', width: 100, ellipsis: true, scopedSlots: {customRender: 'port'}},
-        {title: '所有者', dataIndex: 'user', width: 100, ellipsis: true, scopedSlots: {customRender: 'user'}},
-        {title: '项目名称', dataIndex: 'jpomName', width: 150, ellipsis: true, scopedSlots: {customRender: 'jpomName'}},
-        {title: '物理内存', dataIndex: 'res', width: 100, ellipsis: true},
-        {title: '进程状态', dataIndex: 'status', width: 100, ellipsis: true},
-        {title: '占用CPU', dataIndex: 'cpu', width: 100, ellipsis: true},
-        {title: '物理内存百分比', dataIndex: 'mem', width: 140, ellipsis: true},
-        {title: '虚拟内存', dataIndex: 'virt', width: 100, ellipsis: true},
-        {title: '共享内存', dataIndex: 'shr', width: 100, ellipsis: true},
-        {title: '操作', dataIndex: 'operation', scopedSlots: {customRender: 'operation'}, width: 100, fixed: 'right'}
-      ]
-    }
+        { title: "进程 ID", dataIndex: "pid", width: 80, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "进程名称", dataIndex: "command", width: 150, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "端口", dataIndex: "port", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "所有者", dataIndex: "user", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "项目名称", dataIndex: "jpomName", width: 150, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "物理内存", dataIndex: "res", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "进程状态", dataIndex: "status", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "占用CPU", dataIndex: "cpu", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "物理内存百分比", dataIndex: "mem", width: 140, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "虚拟内存", dataIndex: "virt", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "共享内存", dataIndex: "shr", width: 100, ellipsis: true, scopedSlots: { customRender: "tooltip" } },
+        { title: "操作", dataIndex: "operation", scopedSlots: { customRender: "operation" }, align: "center", width: 80, fixed: "right" },
+      ],
+    };
   },
   mounted() {
+    this.processNames = Object.assign([], this.delfatulProcessNames);
     this.initData();
   },
   destroyed() {
     clearInterval(this.topChartTimer);
   },
+  watch: {},
   methods: {
+    addNodeProcess(v) {
+      this.processNames = v;
+      this.cacheNodeProcess();
+    },
+    restProcessNames() {
+      this.processName = this.delfatulProcessNames[0];
+      this.processNames = this.delfatulProcessNames;
+      this.cacheNodeProcess();
+      this.loadNodeProcess();
+    },
     // 初始化页面
     initData() {
+      const cacheJson = this.getCacheNodeProcess();
+      const nodeCache = cacheJson[this.node.id];
+      this.processName = nodeCache?.processName || this.processName;
+      this.processNames = nodeCache?.processNames || this.processNames;
       if (this.topChartTimer == null) {
         this.loadNodeTop();
         this.loadNodeProcess();
         // 计算多久时间绘制图表
-        const millis = this.node.cycle < 30000 ? 30000 : this.node.cycle;
+        // const millis = this.node.cycle < 30000 ? 30000 : this.node.cycle;
+        // console.log(millis);
         this.topChartTimer = setInterval(() => {
           this.loadNodeTop();
           this.loadNodeProcess();
-        }, millis);
+        }, 20000);
       }
     },
     // 请求 top 命令绘制图表
     loadNodeTop() {
-      getNodeTop(this.node.id).then(res => {
+      nodeMonitorData({ nodeId: this.node.id }).then((res) => {
         if (res.code === 200) {
-          this.topData = res.data;
+          drawChart(res.data, "top-chart", generateNodeTopChart);
         }
-        this.drawTopChart();
-      })
-    },
-    generateChart(data) {
-      let cpuItem = {
-        name: 'cpu占用',
-        type: 'line',
-        data: [],
-        showSymbol: false,
-        // 设置折线为曲线
-        smooth: true
-      };
-      let diskItem = {
-        name: '磁盘占用',
-        type: 'line',
-        data: [],
-        showSymbol: false,
-        smooth: true
-      };
-      let memoryItem = {
-        name: '内存占用(累计)',
-        type: 'line',
-        data: [],
-        showSymbol: false,
-        smooth: true
-      };
-      let memoryUsedItem = {
-        name: '内存占用',
-        type: 'line',
-        data: [],
-        showSymbol: false,
-        smooth: true
-      };
-      data.series.forEach(item => {
-        cpuItem.data.push(parseFloat(item.cpu));
-        diskItem.data.push(parseFloat(item.disk));
-        memoryItem.data.push(parseFloat(item.memory));
-        if (item.memoryUsed) {
-          memoryUsedItem.data.push(parseFloat(item.memoryUsed));
-        }
-      })
-      let series = [cpuItem, memoryItem, diskItem];
-      if (memoryUsedItem.data.length > 0) {
-        series.push(memoryUsedItem);
-      }
-      let legends = series.map((data) => {
-        return data.name;
-      })
-      // 指定图表的配置项和数据
-      return {
-        title: {
-          text: "系统 Top 监控"
-        },
-        tooltip: {
-          trigger: 'axis'
-        },
-        legend: {
-          data: legends
-        },
-        grid: {
-          left: '1%',
-          right: '2%',
-          bottom: '1%',
-          containLabel: true
-        },
-        xAxis: {
-          type: 'category',
-          boundaryGap: false,
-          data: data.scales
-        },
-        calculable: true,
-        yAxis: {
-          type: 'value',
-          axisLabel: {
-            // 设置y轴数值为%
-            formatter: '{value} %'
-          },
-          max: 100
-        },
-        dataZoom: [
-          {type: 'inside'}, {type: 'slider'}
-        ],
-        series: series
-      };
-    },
-    // 绘制 top 图表
-    drawTopChart() {
-      let option = this.generateChart(this.topData);
-      // 绘制图表
-      const topChart = echarts.init(document.getElementById('top-chart'));
-      topChart.setOption(option);
+      });
     },
     // 加载节点进程列表
-    loadNodeProcess() {
+    loadNodeProcess(v) {
       this.loading = true;
-      getProcessList(this.node.id).then(res => {
+      getProcessList({
+        nodeId: this.node.id,
+        processName: this.processName,
+      }).then((res) => {
         if (res.code === 200) {
           this.processList = res.data;
+        } else {
+          this.processList = [];
         }
+        this.tableLocale.emptyText = res.msg;
         this.loading = false;
-      })
+      });
+      if (v) {
+        this.cacheNodeProcess();
+      }
     },
     // kill pid
     kill(record) {
       this.$confirm({
-        title: '系统提示',
-        content: '真的要 Kill 这个进程么？',
-        okText: '确认',
-        cancelText: '取消',
+        title: "系统提示",
+        content: "真的要 Kill 这个进程么？",
+        okText: "确认",
+        cancelText: "取消",
         onOk: () => {
           // kill
           const params = {
             nodeId: this.node.id,
-            pid: record.pid
-          }
-          killPid(params).then(res => {
+            pid: record.pid,
+          };
+          killPid(params).then((res) => {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2
               });
               this.loadNodeProcess();
             }
-          })
-        }
+          });
+        },
       });
     },
     // 历史图表
     handleHistory() {
       this.monitorVisible = true;
-      this.$nextTick(() => {
-        this.handleFilter();
-      })
     },
-    // 刷新
-    handleFilter() {
-      const params = {
-        nodeId: this.node.id,
-        time: this.timeRange
+    cacheNodeProcess() {
+      const cacheJson = this.getCacheNodeProcess();
+      //console.log(this.processNames);
+      cacheJson[this.node.id].processNames = this.processNames;
+      cacheJson[this.node.id].processName = this.processName;
+      localStorage.setItem("node-process-name", JSON.stringify(cacheJson));
+    },
+    getCacheNodeProcess() {
+      const str = localStorage.getItem("node-process-name") || "";
+      let cacheJson;
+      try {
+        cacheJson = JSON.parse(str);
+      } catch (e) {
+        cacheJson = {};
       }
-      // 加载数据
-      nodeMonitorData(params).then(res => {
-        if (res.code === 200) {
-          this.historyData = res.data;
-        }
-        this.drawHistoryChart();
-      })
+      cacheJson[this.node.id] = cacheJson[this.node.id] || {};
+      return cacheJson;
     },
-    // 选择时间
-    onchange(value, dateString) {
-      this.timeRange = `${dateString[0]} ~ ${dateString[1]}`;
-    },
-    // 画历史图表
-    drawHistoryChart() {
-      let option = this.generateChart(this.historyData);
-      // 绘制图表
-      const historyChart = echarts.init(document.getElementById('history-chart'));
-      historyChart.setOption(option);
-    },
-  }
-}
+  },
+};
 </script>
 <style scoped>
 #top-chart {
@@ -263,8 +220,8 @@ export default {
   margin-bottom: 10px;
 }
 
-.filter-item {
-  width: 150px;
+.search-input-item {
+  width: 200px !important;
   margin-right: 10px;
 }
 

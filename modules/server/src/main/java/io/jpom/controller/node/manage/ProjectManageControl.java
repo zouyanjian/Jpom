@@ -1,33 +1,57 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.controller.node.manage;
 
 import cn.hutool.core.util.StrUtil;
 import cn.jiangzeyin.common.JsonMessage;
 import cn.jiangzeyin.common.validator.ValidatorItem;
 import cn.jiangzeyin.common.validator.ValidatorRule;
-import com.alibaba.fastjson.JSONArray;
 import io.jpom.common.BaseServerController;
 import io.jpom.common.forward.NodeForward;
 import io.jpom.common.forward.NodeUrl;
-import io.jpom.common.interceptor.OptLog;
+import io.jpom.model.PageResultDto;
+import io.jpom.model.data.MonitorModel;
 import io.jpom.model.data.NodeModel;
 import io.jpom.model.data.OutGivingModel;
 import io.jpom.model.enums.BuildReleaseMethod;
-import io.jpom.model.log.UserOperateLogV1;
-import io.jpom.plugin.ClassFeature;
-import io.jpom.plugin.Feature;
-import io.jpom.plugin.MethodFeature;
+import io.jpom.model.node.ProjectInfoCacheModel;
+import io.jpom.permission.NodeDataPermission;
+import io.jpom.permission.ClassFeature;
+import io.jpom.permission.Feature;
+import io.jpom.permission.MethodFeature;
 import io.jpom.service.dblog.BuildInfoService;
 import io.jpom.service.monitor.MonitorService;
 import io.jpom.service.node.OutGivingServer;
-import io.jpom.service.node.manage.ProjectInfoService;
+import io.jpom.service.node.ProjectInfoCacheService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Controller;
 import org.springframework.util.Assert;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
 
-import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import java.util.List;
 
 /**
@@ -35,19 +59,27 @@ import java.util.List;
  *
  * @author Administrator
  */
-@Controller
+@RestController
 @RequestMapping(value = "/node/manage/")
 @Feature(cls = ClassFeature.PROJECT)
+@NodeDataPermission(cls = ProjectInfoCacheService.class)
 public class ProjectManageControl extends BaseServerController {
 
-	@Resource
-	private ProjectInfoService projectInfoService;
-	@Resource
-	private OutGivingServer outGivingServer;
-	@Resource
-	private MonitorService monitorService;
-	@Resource
-	private BuildInfoService buildService;
+	private final OutGivingServer outGivingServer;
+	private final MonitorService monitorService;
+	private final BuildInfoService buildService;
+
+	private final ProjectInfoCacheService projectInfoCacheService;
+
+	public ProjectManageControl(OutGivingServer outGivingServer,
+								MonitorService monitorService,
+								BuildInfoService buildService,
+								ProjectInfoCacheService projectInfoCacheService) {
+		this.outGivingServer = outGivingServer;
+		this.monitorService = monitorService;
+		this.buildService = buildService;
+		this.projectInfoCacheService = projectInfoCacheService;
+	}
 
 
 	/**
@@ -55,7 +87,6 @@ public class ProjectManageControl extends BaseServerController {
 	 */
 	@RequestMapping(value = "project_copy_list", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
 	@Feature(method = MethodFeature.LIST)
-	@ResponseBody
 	public String projectCopyList() {
 		return NodeForward.request(getNode(), getRequest(), NodeUrl.Manage_ProjectCopyList).toString();
 	}
@@ -66,7 +97,6 @@ public class ProjectManageControl extends BaseServerController {
 	 * @return json
 	 */
 	@RequestMapping(value = "getProjectPort", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
 	public String getProjectPort() {
 		return NodeForward.request(getNode(), getRequest(), NodeUrl.Manage_GetProjectPort).toString();
 	}
@@ -77,36 +107,22 @@ public class ProjectManageControl extends BaseServerController {
 	 * @return json
 	 */
 	@RequestMapping(value = "getProjectCopyPort", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
 	public String getProjectCopyPort() {
 		return NodeForward.request(getNode(), getRequest(), NodeUrl.Manage_GetProjectCopyPort).toString();
 	}
 
-	/**
-	 * @return
-	 * @author Hotstrip
-	 * get project group
-	 * 获取项目的分组信息
-	 */
-	@RequestMapping(value = "project-group-list", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
-	public String projectGroupList() {
-		List<String> allGroup = projectInfoService.getAllGroup(getNode());
-		return JsonMessage.getString(200, "success", allGroup);
-	}
 
 	/**
 	 * 查询所有项目
 	 *
 	 * @return json
 	 */
-	@RequestMapping(value = "getProjectInfo", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
+	@PostMapping(value = "get_project_info", produces = MediaType.APPLICATION_JSON_VALUE)
 	@Feature(method = MethodFeature.LIST)
 	public String getProjectInfo() {
-		NodeModel nodeModel = getNode();
-		JSONArray jsonArray = projectInfoService.listAll(nodeModel, getRequest());
-		return JsonMessage.getString(200, "ok", jsonArray);
+		PageResultDto<ProjectInfoCacheModel> modelPageResultDto = projectInfoCacheService.listPage(getRequest());
+//		JSONArray jsonArray = projectInfoService.listAll(nodeModel, getRequest());
+		return JsonMessage.getString(200, "", modelPageResultDto);
 	}
 
 	/**
@@ -115,30 +131,42 @@ public class ProjectManageControl extends BaseServerController {
 	 * @param id id
 	 * @return json
 	 */
-	@RequestMapping(value = "deleteProject", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
-	@OptLog(value = UserOperateLogV1.OptType.DelProject)
+	@PostMapping(value = "deleteProject", produces = MediaType.APPLICATION_JSON_VALUE)
 	@Feature(method = MethodFeature.DEL)
 	public String deleteProject(@ValidatorItem(value = ValidatorRule.NOT_BLANK) String id, String copyId) {
 		NodeModel nodeModel = getNode();
+		HttpServletRequest servletRequest = getRequest();
 		if (StrUtil.isEmpty(copyId)) {
 			// 检查节点分发
-			List<OutGivingModel> outGivingModels = outGivingServer.list();
+			List<OutGivingModel> outGivingModels = outGivingServer.listByWorkspace(servletRequest);
 			if (outGivingModels != null) {
-				for (OutGivingModel outGivingModel : outGivingModels) {
-					if (outGivingModel.checkContains(nodeModel.getId(), id)) {
-						return JsonMessage.getString(405, "当前项目存在节点分发，不能直接删除");
-					}
-				}
+				boolean match = outGivingModels.stream().anyMatch(outGivingModel -> outGivingModel.checkContains(nodeModel.getId(), id));
+				Assert.state(!match, "当前项目存在节点分发，不能直接删除");
+//				for (OutGivingModel outGivingModel : outGivingModels) {
+//					if (outGivingModel.checkContains(nodeModel.getId(), id)) {
+//						return JsonMessage.getString(405, "当前项目存在节点分发，不能直接删除");
+//					}
+//				}
 			}
 			//
-			if (monitorService.checkProject(nodeModel.getId(), id)) {
-				return JsonMessage.getString(405, "当前项目存在监控项，不能直接删除");
+			List<MonitorModel> monitorModels = monitorService.listByWorkspace(servletRequest);
+			if (monitorModels != null) {
+				boolean match = monitorModels.stream().anyMatch(monitorModel -> monitorModel.checkNodeProject(nodeModel.getId(), id));
+//				if (monitorService.checkProject(nodeModel.getId(), id)) {
+//					return JsonMessage.getString(405, );
+//				}
+				Assert.state(!match, "当前项目存在监控项，不能直接删除");
 			}
-			boolean releaseMethod = buildService.checkReleaseMethod(nodeModel.getId() + StrUtil.COLON + id, BuildReleaseMethod.Project);
+
+			boolean releaseMethod = buildService.checkReleaseMethod(nodeModel.getId() + StrUtil.COLON + id, servletRequest, BuildReleaseMethod.Project);
 			Assert.state(!releaseMethod, "当前项目存在构建项，不能直接删除");
 		}
-		return NodeForward.request(nodeModel, getRequest(), NodeUrl.Manage_DeleteProject).toString();
+		JsonMessage<Object> request = NodeForward.request(nodeModel, servletRequest, NodeUrl.Manage_DeleteProject);
+		if (request.getCode() == HttpStatus.OK.value()) {
+			//
+			projectInfoCacheService.syncNode(nodeModel);
+		}
+		return request.toString();
 	}
 
 	/**
@@ -149,7 +177,6 @@ public class ProjectManageControl extends BaseServerController {
 	 * @return json
 	 */
 	@RequestMapping(value = "restart", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
 	@Feature(method = MethodFeature.EXECUTE)
 	public String restart() {
 		NodeModel nodeModel = getNode();
@@ -165,7 +192,6 @@ public class ProjectManageControl extends BaseServerController {
 	 * @return json
 	 */
 	@RequestMapping(value = "start", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
 	@Feature(method = MethodFeature.EXECUTE)
 	public String start() {
 		NodeModel nodeModel = getNode();
@@ -181,7 +207,6 @@ public class ProjectManageControl extends BaseServerController {
 	 * @return json
 	 */
 	@RequestMapping(value = "stop", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-	@ResponseBody
 	@Feature(method = MethodFeature.EXECUTE)
 	public String stop() {
 		NodeModel nodeModel = getNode();

@@ -1,88 +1,178 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.model.data;
 
-import io.jpom.model.BaseModel;
-import io.jpom.model.log.UserOperateLogV1;
+import com.alibaba.fastjson.JSON;
+import io.jpom.model.BaseWorkspaceModel;
+import io.jpom.permission.ClassFeature;
+import io.jpom.permission.MethodFeature;
+import io.jpom.service.h2db.TableName;
+import io.jpom.util.StringUtil;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 监控用户操作实体
  *
  * @author Arno
  */
-public class MonitorUserOptModel extends BaseModel {
-    /**
-     * 监控的人员
-     */
-    private List<String> monitorUser;
+@TableName(value = "MONITOR_USER_OPT",name = "监控用户操作")
+public class MonitorUserOptModel extends BaseWorkspaceModel {
+	/**
+	 *
+	 */
+	private String name;
+	/**
+	 * 监控的人员
+	 */
+	private String monitorUser;
+	/**
+	 * 监控的功能
+	 *
+	 * @see ClassFeature
+	 */
+	private String monitorFeature;
+	/**
+	 * 监控的操作
+	 *
+	 * @see MethodFeature
+	 */
+	private String monitorOpt;
+	/**
+	 * 报警联系人
+	 */
+	private String notifyUser;
 
-    /**
-     * 监控的操作
-     */
-    private List<UserOperateLogV1.OptType> monitorOpt;
-    /**
-     * 报警联系人
-     */
-    private List<String> notifyUser;
+	/**
+	 * 监控开启状态
+	 */
+	private Boolean status;
 
-    /**
-     * 创建人
-     */
-    private String parent;
-    /**
-     * 最后修改时间
-     */
-    private long modifyTime;
-    /**
-     * 监控开启状态
-     */
-    private boolean status;
+	public String getName() {
+		return name;
+	}
 
-    public List<String> getMonitorUser() {
-        return monitorUser;
-    }
+	public void setName(String name) {
+		this.name = name;
+	}
 
-    public void setMonitorUser(List<String> monitorUser) {
-        this.monitorUser = monitorUser;
-    }
+	public void setMonitorUser(String monitorUser) {
+		this.monitorUser = monitorUser;
+	}
 
-    public List<UserOperateLogV1.OptType> getMonitorOpt() {
-        return monitorOpt;
-    }
+	public String getMonitorFeature() {
+		List<ClassFeature> object = monitorFeature();
+		return object == null ? null : JSON.toJSONString(object);
+	}
 
-    public void setMonitorOpt(List<UserOperateLogV1.OptType> monitorOpt) {
-        this.monitorOpt = monitorOpt;
-    }
+	public List<ClassFeature> monitorFeature() {
+		return StringUtil.jsonConvertArray(monitorFeature, ClassFeature.class);
+	}
 
-    public List<String> getNotifyUser() {
-        return notifyUser;
-    }
+	public void setMonitorFeature(String monitorFeature) {
+		this.monitorFeature = monitorFeature;
+	}
 
-    public void setNotifyUser(List<String> notifyUser) {
-        this.notifyUser = notifyUser;
-    }
+	public void monitorFeature(List<ClassFeature> monitorFeature) {
+		if (monitorFeature == null) {
+			this.monitorFeature = null;
+		} else {
+			this.monitorFeature = JSON.toJSONString(monitorFeature.stream().map(Enum::name).collect(Collectors.toList()));
+		}
+	}
 
-    public String getParent() {
-        return parent;
-    }
+	public String getMonitorOpt() {
+		List<MethodFeature> object = monitorOpt();
+		return object == null ? null : JSON.toJSONString(object);
+	}
 
-    public void setParent(String parent) {
-        this.parent = parent;
-    }
 
-    public long getModifyTime() {
-        return modifyTime;
-    }
+	public List<MethodFeature> monitorOpt() {
+		return StringUtil.jsonConvertArray(monitorOpt, MethodFeature.class);
+	}
 
-    public void setModifyTime(long modifyTime) {
-        this.modifyTime = modifyTime;
-    }
+	public void setMonitorOpt(String monitorOpt) {
+		this.monitorOpt = monitorOpt;
+	}
 
-    public boolean isStatus() {
-        return status;
-    }
+	public void monitorOpt(List<MethodFeature> monitorOpt) {
+		if (monitorOpt == null) {
+			this.monitorOpt = null;
+		} else {
+			this.monitorOpt = JSON.toJSONString(monitorOpt.stream().map(Enum::name).collect(Collectors.toList()));
+		}
+	}
 
-    public void setStatus(boolean status) {
-        this.status = status;
-    }
+	public void setNotifyUser(String notifyUser) {
+		this.notifyUser = notifyUser;
+	}
+
+	public Boolean getStatus() {
+		return status;
+	}
+
+	public String getMonitorUser() {
+		List<String> object = monitorUser();
+		return object == null ? null : JSON.toJSONString(object);
+	}
+
+	public String getNotifyUser() {
+		List<String> object = notifyUser();
+		return object == null ? null : JSON.toJSONString(object);
+
+	}
+
+	public List<String> monitorUser() {
+		return StringUtil.jsonConvertArray(monitorUser, String.class);
+	}
+
+	public void monitorUser(List<String> monitorUser) {
+		if (monitorUser == null) {
+			this.monitorUser = null;
+		} else {
+			this.monitorUser = JSON.toJSONString(monitorUser);
+		}
+	}
+
+	public List<String> notifyUser() {
+		return StringUtil.jsonConvertArray(notifyUser, String.class);
+	}
+
+	public void notifyUser(List<String> notifyUser) {
+		if (notifyUser == null) {
+			this.notifyUser = null;
+		} else {
+			this.notifyUser = JSON.toJSONString(notifyUser);
+		}
+	}
+
+
+	public boolean isStatus() {
+		return status != null && status;
+	}
+
+	public void setStatus(Boolean status) {
+		this.status = status;
+	}
 }

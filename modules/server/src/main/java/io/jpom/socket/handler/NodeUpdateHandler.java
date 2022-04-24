@@ -1,31 +1,63 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.socket.handler;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.lang.Tuple;
 import cn.hutool.core.thread.ThreadUtil;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.HttpStatus;
 import cn.jiangzeyin.common.DefaultSystemLog;
+import cn.jiangzeyin.common.JsonMessage;
 import cn.jiangzeyin.common.spring.SpringUtil;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import io.jpom.common.Const;
+import io.jpom.common.JpomManifest;
+import io.jpom.common.Type;
 import io.jpom.common.forward.NodeForward;
 import io.jpom.common.forward.NodeUrl;
 import io.jpom.model.AgentFileModel;
 import io.jpom.model.WebSocketMessageModel;
 import io.jpom.model.data.NodeModel;
-import io.jpom.model.data.NodeVersionModel;
 import io.jpom.model.data.UserModel;
-import io.jpom.service.node.AgentFileService;
+import io.jpom.permission.SystemPermission;
+import io.jpom.permission.ClassFeature;
+import io.jpom.permission.Feature;
+import io.jpom.permission.MethodFeature;
 import io.jpom.service.node.NodeService;
+import io.jpom.service.system.SystemParametersServer;
 import io.jpom.socket.BaseProxyHandler;
 import io.jpom.socket.ConsoleCommandOp;
 import io.jpom.socket.client.NodeClient;
-import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,25 +68,26 @@ import java.util.concurrent.ConcurrentMap;
  *
  * @author lf
  */
+@SystemPermission(superUser = true)
+@Feature(cls = ClassFeature.UPGRADE_NODE_LIST, method = MethodFeature.EXECUTE)
 public class NodeUpdateHandler extends BaseProxyHandler {
 
 	private final ConcurrentMap<String, NodeClient> clientMap = new ConcurrentHashMap<>();
 
-	private AgentFileService agentFileService;
+	private static final int CHECK_COUNT = 60;
+
+	private SystemParametersServer systemParametersServer;
 	private NodeService nodeService;
 
 	public NodeUpdateHandler() {
 		super(null);
 	}
 
-	private void init() {
-		agentFileService = SpringUtil.getBean(AgentFileService.class);
-		nodeService = SpringUtil.getBean(NodeService.class);
-	}
-
 	@Override
-	protected boolean showHelloMsg() {
-		return false;
+	protected void init(WebSocketSession session, Map<String, Object> attributes) throws URISyntaxException, IOException {
+		super.init(session, attributes);
+		systemParametersServer = SpringUtil.getBean(SystemParametersServer.class);
+		nodeService = SpringUtil.getBean(NodeService.class);
 	}
 
 	@Override
@@ -62,11 +95,23 @@ public class NodeUpdateHandler extends BaseProxyHandler {
 		return new Object[]{};
 	}
 
-	private void pullNodeList(WebSocketSession session) {
-		List<NodeModel> nodeModelList = nodeService.list();
+	@Override
+	protected void showHelloMsg(Map<String, Object> attributes, WebSocketSession session) {
+
+	}
+
+	private void pullNodeList(WebSocketSession session, String ids) {
+		List<String> split = StrUtil.split(ids, StrUtil.COMMA);
+		List<NodeModel> nodeModelList = nodeService.listById(split);
+		if (nodeModelList == null) {
+			this.onError(session, "没有查询到节点信息：" + ids);
+			return;
+		}
 		for (NodeModel model : nodeModelList) {
-			if (clientMap.containsKey(model.getId())) {
-				continue;
+			NodeClient nodeClient = clientMap.get(model.getId());
+			if (nodeClient != null) {
+				//
+				nodeClient.close();
 			}
 			Map<String, Object> attributes = session.getAttributes();
 			String url = NodeForward.getSocketUrl(model, NodeUrl.NodeUpdate, (UserModel) attributes.get("userInfo"));
@@ -96,31 +141,40 @@ public class NodeUpdateHandler extends BaseProxyHandler {
 	}
 
 	@Override
-	protected void handleTextMessage(Map<String, Object> attributes, WebSocketSession session, JSONObject json, ConsoleCommandOp consoleCommandOp) throws IOException {
+	protected String handleTextMessage(Map<String, Object> attributes, WebSocketSession session, JSONObject json, ConsoleCommandOp consoleCommandOp) throws IOException {
 		WebSocketMessageModel model = WebSocketMessageModel.getInstance(json.toString());
-		this.init();
-		boolean pull = false;
-		switch (model.getCommand()) {
-			case "getNodeList":
-				model.setData(getNodeList());
-				pull = true;
-				break;
+		String ids = null;
+		String command = model.getCommand();
+		switch (command) {
 			case "getAgentVersion":
 				model.setData(getAgentVersion());
 				break;
 			case "updateNode":
+				super.logOpt(this.getClass(), attributes, json);
 				updateNode(model, session);
 				break;
-			default:
+			case "heart":
 				break;
+			default: {
+				if (StrUtil.startWith(command, "getNodeList:")) {
+					ids = StrUtil.removePrefix(command, "getNodeList:");
+				}
+			}
+			break;
 		}
-
+		if (StrUtil.isNotEmpty(ids)) {
+			pullNodeList(session, ids);
+		}
 		if (model.getData() != null) {
-			this.sendMsg(model, session);
+			return model.toString();
 		}
-		if (pull) {
-			pullNodeList(session);
-		}
+		return null;
+	}
+
+	private void onError(WebSocketSession session, String msg) {
+		WebSocketMessageModel error = new WebSocketMessageModel("onError", "");
+		error.setData(msg);
+		this.sendMsg(error, session);
 	}
 
 	/**
@@ -134,70 +188,129 @@ public class NodeUpdateHandler extends BaseProxyHandler {
 		if (CollUtil.isEmpty(ids)) {
 			return;
 		}
+		String protocol = params.getString("protocol");
+		boolean http = StrUtil.equalsIgnoreCase(protocol, "http");
 		try {
-			AgentFileModel agentFileModel = agentFileService.getItem("agent");
+			AgentFileModel agentFileModel = systemParametersServer.getConfig(AgentFileModel.ID, AgentFileModel.class);
 			//
 			if (agentFileModel == null || !FileUtil.exist(agentFileModel.getSavePath())) {
-				WebSocketMessageModel error = new WebSocketMessageModel("onError", "");
-				error.setData("Agent JAR包不存在");
-				session.sendMessage(new TextMessage(error.toString()));
+				this.onError(session, "Agent JAR包不存在");
 				return;
 			}
-
+			JsonMessage<Tuple> error = JpomManifest.checkJpomJar(agentFileModel.getSavePath(), Type.Agent, false);
+			if (error.getCode() != HttpStatus.HTTP_OK) {
+				this.onError(session, "Agent JAR 损坏请重新上传," + error.getMsg());
+				return;
+			}
 			for (int i = 0; i < ids.size(); i++) {
 				int finalI = i;
-				ThreadUtil.execute(() -> {
-					try {
-						String id = ids.getString(finalI);
-						NodeModel node = nodeService.getItem(id);
-						if (node == null) {
-							this.sendMsg(model.setData("没有对应的节点：" + id), session);
-							return;
-						}
-						NodeClient client = clientMap.get(node.getId());
-						if (client == null) {
-							this.sendMsg(model.setData("对应的插件端还没有被初始化：" + id), session);
-							return;
-						}
-						if (client.isOpen()) {
-							// 发送文件信息
-							WebSocketMessageModel webSocketMessageModel = new WebSocketMessageModel("upload", id);
-							webSocketMessageModel.setNodeId(id);
-							webSocketMessageModel.setParams(agentFileModel);
-							client.send(webSocketMessageModel.toString());
-							//
-							try (FileInputStream fis = new FileInputStream(agentFileModel.getSavePath())) {
-								// 发送文件内容
-								int len;
-								byte[] buffer = new byte[1024 * 1024];
-								while ((len = fis.read(buffer)) > 0) {
-									client.send(ByteBuffer.wrap(buffer, 0, len));
-								}
-							}
-							WebSocketMessageModel restartMessage = new WebSocketMessageModel("restart", id);
-							client.send(restartMessage.toString());
-						} else {
-							this.sendMsg(model.setData("节点连接丢失"), session);
-						}
-					} catch (Exception e) {
-						DefaultSystemLog.getLog().error("升级失败:" + model, e);
-						this.sendMsg(model.setData("节点升级失败：" + e.getMessage()), session);
-					}
-				});
+				ThreadUtil.execute(() -> this.updateNodeItem(ids.getString(finalI), session, agentFileModel, http));
 			}
 		} catch (Exception e) {
 			DefaultSystemLog.getLog().error("升级失败", e);
 		}
 	}
 
-	private void sendMsg(WebSocketMessageModel model, WebSocketSession session) {
+	private void updateNodeItemHttp(NodeModel nodeModel, WebSocketSession session, AgentFileModel agentFileModel) {
+		File file = FileUtil.file(agentFileModel.getSavePath());
+		JsonMessage<String> message = NodeForward.requestMultipart(nodeModel, "file", file, NodeUrl.SystemUploadJar);
+		String id = nodeModel.getId();
+		WebSocketMessageModel callbackRestartMessage = new WebSocketMessageModel("restart", id);
+		callbackRestartMessage.setData(message.getMsg());
+		this.sendMsg(callbackRestartMessage, session);
+		// 先等待一会，太快可能还没重启
+		ThreadUtil.sleep(5000L);
+		int retryCount = 0;
 		try {
-			synchronized (session.getId()) {
-				session.sendMessage(new TextMessage(model.toString()));
+			while (retryCount <= CHECK_COUNT) {
+				++retryCount;
+				try {
+					ThreadUtil.sleep(1000L);
+					JsonMessage<Object> jsonMessage = NodeForward.requestBySys(nodeModel, NodeUrl.Info, "nodeId", id);
+					if (jsonMessage.getCode() == HttpStatus.HTTP_OK) {
+						this.sendMsg(callbackRestartMessage.setData("重启完成"), session);
+						return;
+					}
+				} catch (Exception ignored) {
+				}
+			}
+			this.sendMsg(callbackRestartMessage.setData("重连失败"), session);
+		} catch (Exception e) {
+			DefaultSystemLog.getLog().error("升级后重连插件端失败:" + id, e);
+			this.sendMsg(callbackRestartMessage.setData("重连插件端失败"), session);
+		}
+	}
+
+	private void updateNodeItemWebSocket(NodeClient client, String id, WebSocketSession session, AgentFileModel agentFileModel) throws IOException {
+		// 发送文件信息
+		WebSocketMessageModel webSocketMessageModel = new WebSocketMessageModel("upload", id);
+		webSocketMessageModel.setNodeId(id);
+		webSocketMessageModel.setParams(agentFileModel);
+		client.send(webSocketMessageModel.toString());
+		//
+		try (FileInputStream fis = new FileInputStream(agentFileModel.getSavePath())) {
+			// 发送文件内容
+			int len;
+			byte[] buffer = new byte[Const.DEFAULT_BUFFER_SIZE];
+			while ((len = fis.read(buffer)) > 0) {
+				client.send(ByteBuffer.wrap(buffer, 0, len));
+			}
+		}
+		WebSocketMessageModel restartMessage = new WebSocketMessageModel("restart", id);
+		client.send(restartMessage.toString());
+		// 先等待一会，太快可能还没重启
+		ThreadUtil.sleep(10000L);
+		// 重启后尝试访问插件端，能够连接说明重启完毕
+		//WebSocketMessageModel callbackRestartMessage = new WebSocketMessageModel("restart", id);
+		int retryCount = 0;
+		try {
+			while (retryCount <= CHECK_COUNT) {
+				++retryCount;
+				try {
+					ThreadUtil.sleep(1000L);
+					if (client.reconnectBlocking()) {
+						this.sendMsg(restartMessage.setData("重启完成"), session);
+						return;
+					}
+				} catch (Exception ignored) {
+				}
+			}
+			this.sendMsg(restartMessage.setData("重连失败"), session);
+		} catch (Exception e) {
+			DefaultSystemLog.getLog().error("升级后重连插件端失败:" + id, e);
+			this.sendMsg(restartMessage.setData("重连插件端失败"), session);
+		}
+	}
+
+	private void updateNodeItem(String id, WebSocketSession session, AgentFileModel agentFileModel, boolean http) {
+		try {
+			NodeModel node = nodeService.getByKey(id);
+			if (node == null) {
+				this.onError(session, "没有对应的节点：" + id);
+				return;
+			}
+			NodeClient client = clientMap.get(node.getId());
+			if (client == null) {
+				this.onError(session, "对应的插件端还没有被初始化：" + id);
+				return;
+			}
+			if (client.isOpen()) {
+				if (http) {
+					this.updateNodeItemHttp(node, session, agentFileModel);
+				} else {
+					this.updateNodeItemWebSocket(client, id, session, agentFileModel);
+				}
+			} else {
+				this.onError(session, "节点连接丢失");
 			}
 		} catch (Exception e) {
-			DefaultSystemLog.getLog().error("发送消息失败", e);
+			DefaultSystemLog.getLog().error("升级失败:" + id, e);
+			this.onError(session, "节点升级失败：" + e.getMessage());
 		}
+	}
+
+	private void sendMsg(WebSocketMessageModel model, WebSocketSession session) {
+		super.sendMsg(session, model.toString());
 	}
 
 	/**
@@ -206,29 +319,12 @@ public class NodeUpdateHandler extends BaseProxyHandler {
 	 * @return json
 	 */
 	private String getAgentVersion() {
-		AgentFileModel agentFileModel = agentFileService.getItem("agent");
-		if (agentFileModel == null) {
-			return null;
-		}
+		AgentFileModel agentFileModel = systemParametersServer.getConfig(AgentFileModel.ID, AgentFileModel.class, agentFileModel1 -> {
+			if (agentFileModel1 == null || !FileUtil.exist(agentFileModel1.getSavePath())) {
+				return AgentFileModel.EMPTY;
+			}
+			return agentFileModel1;
+		});
 		return JSONObject.toJSONString(agentFileModel);
-	}
-
-	/**
-	 * 获取节点列表
-	 *
-	 * @return 节点列表
-	 */
-	private List<NodeVersionModel> getNodeList() {
-		NodeService nodeService = SpringUtil.getBean(NodeService.class);
-		List<NodeModel> nodeModels = nodeService.list();
-		List<NodeVersionModel> result = new ArrayList<>();
-		for (NodeModel node : nodeModels) {
-			NodeVersionModel model = new NodeVersionModel();
-			model.setId(node.getId());
-			model.setName(node.getName());
-			model.setGroup(node.getGroup());
-			result.add(model);
-		}
-		return result;
 	}
 }

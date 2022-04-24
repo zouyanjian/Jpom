@@ -1,8 +1,32 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.common;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.lang.Console;
+import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.core.util.CharsetUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.jiangzeyin.common.DefaultSystemLog;
@@ -45,21 +69,19 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 		if (event instanceof ApplicationReadyEvent) {
 			//
 			checkPath();
+			JpomManifest jpomManifest = JpomManifest.getInstance();
+			ConfigBean instance = ConfigBean.getInstance();
 			// 清理旧进程新文件
-			File dataDir = FileUtil.file(ConfigBean.getInstance().getDataPath());
+			File dataDir = FileUtil.file(instance.getDataPath());
 			List<File> files = FileUtil.loopFiles(dataDir, 1, pathname -> pathname.getName().startsWith("pid."));
 			files.forEach(FileUtil::del);
-			DefaultSystemLog.getLog().debug("clear old pid file success");
 			try {
-				this.lockFile();
+				this.lockFile(jpomManifest.getPid());
 			} catch (IOException e) {
 				DefaultSystemLog.getLog().error("lockFile", e);
 			}
-			DefaultSystemLog.getLog().debug("lock pid file success");
-			// 写入Jpom 信息
-			JpomManifest jpomManifest = JpomManifest.getInstance();
-			//  写入全局信息
-			File appJpomFile = ConfigBean.getInstance().getApplicationJpomInfo(JpomApplication.getAppType());
+			// 写入Jpom 信息 、 写入全局信息
+			File appJpomFile = instance.getApplicationJpomInfo(JpomApplication.getAppType());
 			FileUtil.writeString(jpomManifest.toString(), appJpomFile, CharsetUtil.CHARSET_UTF_8);
 			// 检查更新文件
 			checkUpdate();
@@ -73,9 +95,10 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 			// 应用关闭
 			this.unLockFile();
 			//
-			FileUtil.del(ConfigBean.getInstance().getPidFile());
+			ConfigBean instance = ConfigBean.getInstance();
+			FileUtil.del(instance.getPidFile());
 			//
-			File appJpomFile = ConfigBean.getInstance().getApplicationJpomInfo(JpomApplication.getAppType());
+			File appJpomFile = instance.getApplicationJpomInfo(JpomApplication.getAppType());
 			FileUtil.del(appJpomFile);
 		}
 	}
@@ -87,8 +110,7 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 		if (lock != null) {
 			try {
 				lock.release();
-			} catch (IOException e) {
-				e.printStackTrace();
+			} catch (IOException ignored) {
 			}
 		}
 		IoUtil.close(lock);
@@ -101,8 +123,10 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 	 *
 	 * @throws IOException IO
 	 */
-	private void lockFile() throws IOException {
+	private void lockFile(long pid) throws IOException {
 		this.fileOutputStream = new FileOutputStream(ConfigBean.getInstance().getPidFile(), true);
+		this.fileOutputStream.write(StrUtil.bytes("Jpom pid:" + pid, CharsetUtil.CHARSET_UTF_8));
+		this.fileOutputStream.flush();
 		this.fileChannel = fileOutputStream.getChannel();
 		while (true) {
 			try {
@@ -111,11 +135,7 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 			} catch (OverlappingFileLockException | IOException e) {
 				DefaultSystemLog.getLog().warn("获取进程文件锁失败：" + e.getMessage());
 			}
-			try {
-				Thread.sleep(100);
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-			}
+			ThreadUtil.sleep(100);
 		}
 	}
 
@@ -131,14 +151,17 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 			FileUtil.mkdir(file);
 			file = FileUtil.createTempFile("jpom", ".temp", file, true);
 		} catch (Exception e) {
-			DefaultSystemLog.getLog().error(StrUtil.format("Jpom创建数据目录失败,目录位置：{},请检查当前用户是否有此目录权限或修改配置文件：{}中的jpom.path为可创建目录的路径", path, extConfigPath), e);
+			DefaultSystemLog.getLog().error(StrUtil.format("Jpom Failed to create data directory, directory location：{}," +
+					"Please check whether the current user has permission to this directory or modify the configuration file：{} jpom.path in is the path where the directory can be created", path, extConfigPath), e);
 			System.exit(-1);
 		}
 		FileUtil.del(file);
-		//        Console.log("", path);
-		Console.log("Jpom[{}] 当前数据路径：{} 外部配置文件路径：{}", JpomManifest.getInstance().getVersion(), path, extConfigPath);
+		Console.log("Jpom[{}] Current data path：{} External configuration file path：{}", JpomManifest.getInstance().getVersion(), path, extConfigPath);
 	}
 
+	/**
+	 * 检查更新包文件状态
+	 */
 	private static void checkUpdate() {
 		File runFile = JpomManifest.getRunPath().getParentFile();
 		String upgrade = FileUtil.file(runFile, ConfigBean.UPGRADE).getAbsolutePath();
@@ -147,20 +170,19 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 			jsonObject = (JSONObject) JsonFileUtil.readJson(upgrade);
 		} catch (FileNotFoundException ignored) {
 		}
-		if (jsonObject == null) {
-			return;
+		if (jsonObject != null) {
+			String beforeJar = jsonObject.getString("beforeJar");
+			if (StrUtil.isNotEmpty(beforeJar)) {
+				File beforeJarFile = FileUtil.file(runFile, beforeJar);
+				if (beforeJarFile.exists()) {
+					File oldJars = JpomManifest.getOldJarsPath();
+					FileUtil.mkdir(oldJars);
+					FileUtil.move(beforeJarFile, oldJars, true);
+					DefaultSystemLog.getLog().info("备份旧程序包：" + beforeJar);
+				}
+			}
 		}
-		String beforeJar = jsonObject.getString("beforeJar");
-		if (StrUtil.isEmpty(beforeJar)) {
-			return;
-		}
-		File beforeJarFile = FileUtil.file(runFile, beforeJar);
-		if (beforeJarFile.exists()) {
-			File oldJars = FileUtil.file(runFile, "oldJars");
-			FileUtil.mkdir(oldJars);
-			FileUtil.move(beforeJarFile, oldJars, true);
-			DefaultSystemLog.getLog().info("备份旧程序包：" + beforeJar);
-		}
+		clearOldJar();
 		// windows 备份日志
 		//        if (SystemUtil.getOsInfo().isWindows()) {
 		//            boolean logBack = jsonObject.getBooleanValue("logBack");
@@ -174,6 +196,21 @@ public class JpomApplicationEvent implements ApplicationEventClient {
 		//                }
 		//            }
 		//        }
+	}
+
+	private static void clearOldJar() {
+		File oldJars = JpomManifest.getOldJarsPath();
+		List<File> files = FileUtil.loopFiles(oldJars, 1, file -> StrUtil.endWith(file.getName(), FileUtil.JAR_FILE_EXT, true));
+		if (CollUtil.isEmpty(files)) {
+			return;
+		}
+		// 排序
+		files.sort((o1, o2) -> FileUtil.lastModifiedTime(o2).compareTo(FileUtil.lastModifiedTime(o1)));
+		// 截取
+		int size = CollUtil.size(files);
+		files = CollUtil.sub(files, ExtConfigBean.getInstance().getOldJarsCount(), size);
+		// 删除文件
+		files.forEach(FileUtil::del);
 	}
 
 }

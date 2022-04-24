@@ -1,10 +1,19 @@
 import axios from "./config";
 
 // 分发列表
-export function getDishPatchList() {
+export function getDishPatchList(data) {
   return axios({
     url: "/outgiving/dispatch-list",
     method: "post",
+    data: data,
+  });
+}
+
+// 分发列表
+export function getDishPatchListAll() {
+  return axios({
+    url: "/outgiving/dispatch-list-all",
+    method: "get",
   });
 }
 
@@ -113,14 +122,38 @@ export function remoteDownload(params) {
 }
 
 /**
+ * 释放分发
+ * @param {*} id 分发 ID
+ */
+export function releaseDelDisPatch(id) {
+  return axios({
+    url: "/outgiving/release_del.json",
+    method: "post",
+    data: { id },
+  });
+}
+
+/**
  * 删除分发
  * @param {*} id 分发 ID
  */
-export function deleteDisPatch(id) {
+export function delDisPatchProject(id) {
   return axios({
-    url: "/outgiving/del.json",
+    url: "/outgiving/delete_project",
     method: "post",
     data: { id },
+  });
+}
+
+/**
+ * 解绑分发
+ * @param {*} id 分发 ID
+ */
+export function unbindOutgiving(id) {
+  return axios({
+    url: "/outgiving/unbind.json",
+    method: "get",
+    params: { id },
   });
 }
 
@@ -160,3 +193,24 @@ export function editDispatchWhiteList(params) {
     data: params,
   });
 }
+
+export const afterOptList = [
+  { title: "不做任何操作", value: 0 },
+  { title: "并发执行", value: 1 },
+  { title: "完整顺序执行(有执行失败将结束本次)", value: 2 },
+  { title: "顺序执行(有执行失败将继续)", value: 3 },
+];
+
+export const dispatchStatusMap = {
+  0: "未分发",
+  1: "分发中",
+  2: "分发成功",
+  3: "分发失败",
+  4: "取消分发",
+};
+
+export const statusMap = {
+  0: "未分发",
+  1: "分发中",
+  2: "分发结束",
+};

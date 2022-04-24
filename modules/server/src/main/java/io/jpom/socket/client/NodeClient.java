@@ -1,12 +1,34 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.socket.client;
 
+import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.jiangzeyin.common.DefaultSystemLog;
 import cn.jiangzeyin.common.spring.SpringUtil;
 import com.alibaba.fastjson.JSONObject;
 import io.jpom.model.WebSocketMessageModel;
 import io.jpom.model.data.NodeModel;
-import io.jpom.socket.handler.NodeUpdateHandler;
 import io.jpom.system.init.OperateLogController;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
@@ -44,10 +66,7 @@ public class NodeClient extends WebSocketClient {
 	private void loopOpen() {
 		int count = 0;
 		while (!this.isOpen() && count < 20) {
-			try {
-				Thread.sleep(500);
-			} catch (InterruptedException ignored) {
-			}
+			ThreadUtil.sleep(500);
 			count++;
 		}
 	}
@@ -55,6 +74,10 @@ public class NodeClient extends WebSocketClient {
 	@Override
 	public void onOpen(ServerHandshake serverHandshake) {
 		// 连接成功后获取版本信息
+		getVersion();
+	}
+
+	public void getVersion() {
 		WebSocketMessageModel command = new WebSocketMessageModel("getVersion", this.nodeModel.getId());
 		send(command.toString());
 	}
@@ -87,6 +110,16 @@ public class NodeClient extends WebSocketClient {
 	@Override
 	public void send(String text) {
 		super.send(text);
+	}
+
+
+	@Override
+	public void close() {
+		try {
+			super.close();
+		} catch (Exception e) {
+			DefaultSystemLog.getLog().error("关闭异常", e);
+		}
 	}
 
 	@Override

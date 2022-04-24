@@ -6,20 +6,25 @@ server:
       cookie:
         name: JPOMID-SERVER
       timeout: 1H
+  compression:
+    # gzip 压缩
+    enabled: true
+    #mime-types: application/json,application/xml,text/html,text/xml,text/plain,application/javascript,image/png
+    min-response-size: 2048
 spring:
   application:
     name: jpomServer
   profiles:
-    active: dev
+    active: local
   mvc:
     throw-exception-if-no-handler-found: true
   servlet:
     multipart:
       max-request-size: 2GB
       max-file-size: 1GB
-#thymeleaf end
+
 banner:
-  msg: Jpom-Server 管理系统启动中
+  msg: Jpom-Server Starting
 # 静态资源配置
 interceptor:
   resourceHandler: /css/**,/fonts/**,/img/**,/js/**,/favicon.ico
@@ -32,5 +37,6 @@ preload:
 request:
   trimAll: true
   parameterXss: false
+  copyInputStream: true
 #在线编辑格式
 #fileFormat: txt|yml|conf|properties|ini

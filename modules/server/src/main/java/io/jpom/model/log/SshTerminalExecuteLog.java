@@ -1,8 +1,30 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.model.log;
 
 import cn.hutool.core.util.StrUtil;
 import io.jpom.JpomApplication;
-import io.jpom.model.BaseDbModel;
+import io.jpom.model.BaseWorkspaceModel;
 import io.jpom.model.data.UserModel;
 import io.jpom.service.h2db.TableName;
 
@@ -12,8 +34,8 @@ import io.jpom.service.h2db.TableName;
  * @author jiangzeyin
  * @date 2021/08/04
  */
-@TableName("SSHTERMINALEXECUTELOG")
-public class SshTerminalExecuteLog extends BaseDbModel {
+@TableName(value = "SSHTERMINALEXECUTELOG",name = "ssh 终端执行日志")
+public class SshTerminalExecuteLog extends BaseWorkspaceModel {
 	/**
 	 * 操作ip
 	 */
@@ -30,10 +52,10 @@ public class SshTerminalExecuteLog extends BaseDbModel {
 	 * 名称
 	 */
 	private String sshName;
-	/**
-	 * 操作时间
-	 */
-	private long optTime;
+//	/**
+//	 * 操作时间
+//	 */
+//	private long optTime;
 	/**
 	 * 执行的命令
 	 */
@@ -92,13 +114,13 @@ public class SshTerminalExecuteLog extends BaseDbModel {
 		}
 	}
 
-	public long getOptTime() {
-		return optTime;
-	}
-
-	public void setOptTime(long optTime) {
-		this.optTime = optTime;
-	}
+//	public long getOptTime() {
+//		return optTime;
+//	}
+//
+//	public void setOptTime(long optTime) {
+//		this.optTime = optTime;
+//	}
 
 	public String getSshId() {
 		return sshId;

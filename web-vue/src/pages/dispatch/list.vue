@@ -1,28 +1,107 @@
 <template>
-  <div>
-    <div ref="filter" class="filter">
-      <a-button type="primary" @click="handleLink">添加关联项目</a-button>
-      <a-button type="primary" @click="handleAdd">创建分发项目</a-button>
-      <a-button type="primary" @click="handleFilter">刷新</a-button>
-    </div>
+  <div class="full-content">
     <!-- 表格 :scroll="{x: 740, y: tableHeight - 60}" scroll 跟 expandedRowRender 不兼容，没法同时使用不然会多出一行数据-->
-    <a-table :loading="loading" :columns="columns" :data-source="list" bordered rowKey="id" :style="{ 'max-height': tableHeight + 'px' }" @expand="expand" :pagination="false">
+    <a-table
+      :columns="columns"
+      :data-source="list"
+      bordered
+      rowKey="id"
+      @expand="expand"
+      :pagination="this.listQuery.total / this.listQuery.limit > 1 ? (this, pagination) : false"
+      @change="changePage"
+    >
+      <template slot="title">
+        <a-space>
+          <a-input class="search-input-item" @pressEnter="loadData" v-model="listQuery['%id%']" placeholder="id" />
+          <a-input class="search-input-item" @pressEnter="loadData" v-model="listQuery['%name%']" placeholder="名称" />
+          <a-select v-model="listQuery.outGivingProject" allowClear placeholder="分发类型" class="search-input-item">
+            <a-select-option :value="1">独立</a-select-option>
+            <a-select-option :value="0">关联</a-select-option>
+          </a-select>
+          <a-select v-model="listQuery.status" allowClear placeholder="请选择状态" class="search-input-item">
+            <a-select-option v-for="(name, key) in statusMap" :key="key">{{ name }}</a-select-option>
+          </a-select>
+          <a-tooltip title="按住 Ctr 或者 Alt/Option 键点击按钮快速回到第一页">
+            <a-button type="primary" :loading="loading" @click="loadData">搜索</a-button>
+          </a-tooltip>
+          <a-button type="primary" @click="handleLink">添加关联项目</a-button>
+          <a-button type="primary" @click="handleAdd">创建分发项目</a-button>
+          <a-tooltip>
+            <template slot="title">
+              <div>节点分发是指,一个项目运行需要在多个节点(服务器)中运行,使用节点分发来统一管理这个项目(可以实现分布式项目管理功能)</div>
+
+              <div>
+                <ul>
+                  <li>添加关联项目是指,将已经在节点中创建好的项目关联为节点分发项目来实现统一管理</li>
+                  <li>创建分发项目是指,全新创建一个属于节点分发到项目,创建成功后项目信息将自动同步到对应的节点中,修改节点分发信息也自动同步到对应的节点中</li>
+                </ul>
+              </div>
+            </template>
+            <a-icon type="question-circle" theme="filled" />
+          </a-tooltip>
+        </a-space>
+      </template>
       <a-tooltip slot="id" slot-scope="text" placement="topLeft" :title="text">
         <span>{{ text }}</span>
       </a-tooltip>
       <a-tooltip slot="name" slot-scope="text" placement="topLeft" :title="text">
         <span>{{ text }}</span>
       </a-tooltip>
+      <a-tooltip slot="status" slot-scope="text" placement="topLeft" :title="statusMap[text]">
+        <span>{{ statusMap[text] }}</span>
+      </a-tooltip>
+
+      <a-tooltip slot="clearOld" slot-scope="text"> <a-switch size="small" checked-children="是" un-checked-children="否" disabled :checked="text" /></a-tooltip>
+
+      <a-tooltip
+        slot-scope="text"
+        slot="afterOpt"
+        :title="
+          afterOptList.filter((item) => {
+            return item.value === text;
+          }).length &&
+          afterOptList.filter((item) => {
+            return item.value === text;
+          })[0].title
+        "
+      >
+        <span>{{
+          afterOptList.filter((item) => {
+            return item.value === text;
+          }).length &&
+          afterOptList.filter((item) => {
+            return item.value === text;
+          })[0].title
+        }}</span>
+      </a-tooltip>
+
       <template slot="outGivingProject" slot-scope="text">
         <span v-if="text">独立</span>
         <span v-else>关联</span>
       </template>
       <template slot="operation" slot-scope="text, record">
-        <a-button type="primary" v-if="list_expanded[record.id]" @click="handleReload(record)">刷新</a-button>
-        <a-button type="primary" @click="handleDispatch(record)">分发文件</a-button>
-        <a-button type="primary" v-if="record.outGivingProject" @click="handleEditDispatchProject(record)">编辑</a-button>
-        <a-button type="primary" v-else @click="handleEditDispatch(record)">编辑</a-button>
-        <a-button type="danger" @click="handleDelete(record)">删除</a-button>
+        <a-space>
+          <a-button size="small" type="primary" @click="handleDispatch(record)">分发文件</a-button>
+          <a-button size="small" type="primary" v-if="list_expanded[record.id]" @click="handleReload(record)">刷新</a-button>
+          <template v-else>
+            <a-button size="small" type="primary" v-if="record.outGivingProject" @click="handleEditDispatchProject(record)">编辑</a-button>
+            <a-button size="small" type="primary" v-else @click="handleEditDispatch(record)">编辑</a-button>
+          </template>
+          <a-dropdown>
+            <a class="ant-dropdown-link" @click="(e) => e.preventDefault()">
+              更多
+              <a-icon type="down" />
+            </a>
+            <a-menu slot="overlay">
+              <a-menu-item>
+                <a-button type="danger" v-if="!list_expanded[record.id]" @click="handleDelete(record)">{{ record.outGivingProject ? "删除" : "释放" }}</a-button>
+              </a-menu-item>
+              <a-menu-item>
+                <a-button type="danger" @click="handleUnbind(record)">解绑</a-button>
+              </a-menu-item>
+            </a-menu>
+          </a-dropdown>
+        </a-space>
       </template>
       <!-- 嵌套表格 -->
       <a-table
@@ -30,50 +109,53 @@
         slot-scope="text"
         :loading="childLoading"
         :columns="childColumns"
+        size="middle"
+        :bordered="false"
         :data-source="text.children"
         :pagination="false"
         :rowKey="(record, index) => record.nodeId + record.projectId + index"
       >
         <a-tooltip slot="nodeId" slot-scope="text" placement="topLeft" :title="text">
-          <span>{{ text }}</span>
+          <span>{{ nodeNameMap[text] || text }}</span>
         </a-tooltip>
         <a-tooltip slot="projectName" slot-scope="text" placement="topLeft" :title="text">
           <span>{{ text }}</span>
         </a-tooltip>
-        <a-tooltip slot="outGivingResult" slot-scope="text" placement="topLeft" :title="text">
-          <span>{{ text }}</span>
+        <a-tooltip slot="outGivingResult" slot-scope="text, item" placement="topLeft" :title="text">
+          <span>{{ text }} {{ item.errorMsg || "" }}</span>
         </a-tooltip>
-        <a-switch slot="projectStatus" slot-scope="text" :checked="text" checked-children="运行中" un-checked-children="未运行" />
+        <template slot="projectStatus" slot-scope="text, item">
+          <a-tooltip v-if="item.errorMsg" :title="item.errorMsg">
+            <span>{{ item.errorMsg }}</span>
+          </a-tooltip>
+          <a-switch v-else :checked="text" size="small" checked-children="运行中" un-checked-children="未运行" />
+        </template>
+
         <template slot="child-operation" slot-scope="text, record">
-          <a-button :disabled="!record.projectName" type="primary" @click="handleFile(record)">文件</a-button>
-          <a-button :disabled="!record.projectName" type="primary" @click="handleConsole(record)">控制台</a-button>
+          <a-space>
+            <a-button size="small" :disabled="!record.projectName" type="primary" @click="handleFile(record)">文件</a-button>
+            <a-button size="small" :disabled="!record.projectName" type="primary" @click="handleConsole(record)">控制台</a-button>
+          </a-space>
         </template>
       </a-table>
     </a-table>
     <!-- 添加/编辑关联项目 -->
     <a-modal v-model="linkDispatchVisible" width="600px" :title="temp.type === 'edit' ? '编辑关联项目' : '添加关联项目'" @ok="handleLinkDispatchOk" :maskClosable="false" @cancel="clearDispatchList">
       <a-form-model ref="linkDispatchForm" :rules="rules" :model="temp" :label-col="{ span: 4 }" :wrapper-col="{ span: 18 }">
-        <a-form-model-item label="分发 ID" prop="id">
+        <a-form-model-item prop="id">
+          <template slot="label">
+            分发 ID
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title">分发 ID 等同于项目 ID</template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
           <a-input v-model="temp.id" :disabled="temp.type === 'edit'" placeholder="创建之后不能修改" />
         </a-form-model-item>
         <a-form-model-item label="分发名称" prop="name">
           <a-input v-model="temp.name" placeholder="分发名称" />
         </a-form-model-item>
-        <!-- <a-form-model-item label="分发项目" prop="projectId">
-          <a-select v-model="temp.projectId" placeholder="请选择需要分发的项目" @select="selectProject">
-            <a-select-option v-for="project in projectList" :key="project.id">{{ project.name }}</a-select-option>
-          </a-select>
-        </a-form-model-item>
-        <a-form-model-item label="勾选节点" prop="nodeId">
-          <a-transfer
-            :data-source="nodeList"
-            show-search
-            :filter-option="filterOption"
-            :target-keys="targetKeys"
-            :render="item => item.title"
-            @change="handleChange"
-          />
-        </a-form-model-item> -->
+
         <a-form-model-item label="分发节点" required>
           <a-list item-layout="horizontal" :data-source="dispatchList">
             <a-list-item slot="renderItem" slot-scope="item, index" v-if="item.status">
@@ -84,10 +166,10 @@
                 style="width: 140px"
                 :defaultValue="item.index === '' ? undefined : item.index"
                 @change="(value) => handleNodeListChange(value, index)"
-                :disabled="item.index === '' ? false : !nodeNameList[item.index].openStatus"
+                :disabled="item.index === '' ? false : !nodeNameList[item.index].nodeData || !nodeNameList[item.index].nodeData.openStatus"
               >
-                <a-select-option :value="index" v-for="(nodeList, index) in nodeNameList" :key="nodeList.id" :disabled="!nodeList.openStatus">
-                  {{ nodeList.name }}
+                <a-select-option :value="index" v-for="(nodeList, index) in nodeNameList" :key="nodeList.id" :disabled="!nodeList.nodeData || nodeList.nodeData.openStatus !== 1">
+                  {{ nodeList.nodeData && nodeList.nodeData.name }}
                 </a-select-option>
               </a-select>
               <span>项目: </span>
@@ -99,7 +181,16 @@
                 @change="(value) => handleProjectChange(value, index)"
                 :disabled="dispatchList[index].disabled"
               >
-                <a-select-option :value="project.id" v-for="project in item.project" :key="project.id">
+                <a-select-option
+                  :value="project.projectId"
+                  v-for="project in item.project"
+                  :disabled="
+                    dispatchList.filter((item, nowIndex) => {
+                      return item.projectId === project.projectId && nowIndex !== index;
+                    }).length > 0
+                  "
+                  :key="project.projectId"
+                >
                   {{ project.name }}
                 </a-select-option>
               </a-select>
@@ -110,29 +201,58 @@
         </a-form-model-item>
         <a-form-model-item label="分发后操作" prop="afterOpt">
           <a-select v-model="temp.afterOpt" placeholder="请选择发布后操作">
-            <a-select-option :key="0">不做任何操作</a-select-option>
-            <a-select-option :key="1">并发重启</a-select-option>
-            <a-select-option :key="2">完整顺序重启(有重启失败将结束本次)</a-select-option>
-            <a-select-option :key="3">顺序重启(有重启失败将继续)</a-select-option>
+            <a-select-option v-for="item in afterOptList" :key="item.value">{{ item.title }}</a-select-option>
           </a-select>
+        </a-form-model-item>
+        <a-form-model-item prop="intervalTime">
+          <template slot="label">
+            间隔时间
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title">
+                在执行多节点分发时候使用 顺序重启、完整顺序重启 时候需要保证项目能正常重启,并等待上一个项目启动完成才能关闭下一个项目,请根据自身项目启动时间来配置
+                <li>一般建议 10 秒以上</li>
+              </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-input-number :min="0" v-model="temp.intervalTime" placeholder="分发间隔时间 （顺序重启、完整顺序重启）方式才生效" style="width: 100%" />
+        </a-form-model-item>
+        <a-form-model-item prop="clearOld">
+          <template slot="label">
+            清空发布
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title"> 清空发布是指在上传新文件前,会将项目文件夹目录里面的所有文件先删除后再保存新文件 </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-switch v-model="temp.clearOld" checked-children="是" un-checked-children="否" />
         </a-form-model-item>
       </a-form-model>
     </a-modal>
     <!-- 创建/编辑分发项目 -->
-    <a-modal v-model="editDispatchVisible" width="600px" :title="temp.type === 'edit' ? '编辑分发项目' : '创建分发项目'" @ok="handleEditDispatchOk" :maskClosable="false">
-      <a-form-model ref="editDispatchForm" :rules="rules" :model="temp" :label-col="{ span: 6 }" :wrapper-col="{ span: 18 }">
-        <a-form-model-item label="项目 ID" prop="id">
+    <a-modal v-model="editDispatchVisible" width="60vw" :title="temp.type === 'edit' ? '编辑分发项目' : '创建分发项目'" @ok="handleEditDispatchOk" :maskClosable="false">
+      <a-form-model ref="editDispatchForm" :rules="rules" :model="temp" :label-col="{ span: 4 }" :wrapper-col="{ span: 18 }">
+        <a-form-model-item prop="id">
+          <template slot="label">
+            分发 ID
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title">分发 ID 等同于项目 ID</template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
           <a-input v-model="temp.id" :disabled="temp.type === 'edit'" placeholder="创建之后不能修改" />
         </a-form-model-item>
         <a-form-model-item label="项目名称" prop="name">
           <a-input v-model="temp.name" placeholder="项目名称" />
         </a-form-model-item>
+
         <a-form-model-item prop="runMode">
           <template slot="label">
             运行方式
             <a-tooltip v-show="temp.type !== 'edit'">
               <template slot="title">
                 <ul>
+                  <li><b>Dsl</b> 配合脚本模版实现自定义项目管理</li>
                   <li><b>ClassPath</b> java -classpath xxx 运行项目</li>
                   <li><b>Jar</b> java -jar xxx 运行项目</li>
                   <li><b>JarWar</b> java -jar Springboot war 运行项目</li>
@@ -150,27 +270,12 @@
 
         <a-form-model-item prop="whitelistDirectory" class="jpom-project-whitelist">
           <template slot="label">
-            项目白名单路径
+            项目路径
             <a-tooltip v-show="temp.type !== 'edit'">
               <template slot="title">
                 <ul>
                   <li>白名单路径是指项目文件存放到服务中的文件夹</li>
                   <li>可以到【节点分发】=>【分发白名单配置】修改</li>
-                </ul>
-              </template>
-              <a-icon type="question-circle" theme="filled" />
-            </a-tooltip>
-          </template>
-          <a-select v-model="temp.whitelistDirectory" placeholder="请选择项目白名单路径">
-            <a-select-option v-for="access in accessList" :key="access">{{ access }}</a-select-option>
-          </a-select>
-        </a-form-model-item>
-        <a-form-model-item prop="lib">
-          <template slot="label">
-            项目文件夹
-            <a-tooltip v-show="temp.type !== 'edit'">
-              <template slot="title">
-                <ul>
                   <li>项目文件夹是项目实际存放的目录名称</li>
                   <li>项目文件会存放到 <br />&nbsp;&nbsp;<b>项目白名单路径+项目文件夹</b></li>
                 </ul>
@@ -178,19 +283,62 @@
               <a-icon type="question-circle" theme="filled" />
             </a-tooltip>
           </template>
-          <a-input v-model="temp.lib" placeholder="项目存储的文件夹，jar 包存放的文件夹" />
+          <a-input-group compact>
+            <a-select style="width: 50%" v-model="temp.whitelistDirectory" placeholder="请选择项目白名单路径">
+              <a-select-option v-for="access in accessList" :key="access">{{ access }}</a-select-option>
+            </a-select>
+            <a-input style="width: 50%" v-model="temp.lib" placeholder="项目存储的文件夹，jar 包存放的文件夹" />
+          </a-input-group>
         </a-form-model-item>
+        <!-- <a-form-model-item prop="lib">
+          <template slot="label">
+            项目文件夹
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title">
+                <ul></ul>
+              </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+
+        </a-form-model-item> -->
         <a-form-model-item v-show="filePath !== ''" label="项目完整目录">
           <a-alert :message="filePath" type="success" />
         </a-form-model-item>
-        <a-form-model-item v-show="temp.runMode && temp.runMode !== 'File'">
+        <a-form-model-item v-show="temp.runMode === 'Dsl'" prop="dslContent">
+          <template slot="label">
+            DSL 内容
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title">
+                <p>以 yaml/yml 格式配置,scriptId 为项目路径下的脚本文件的相对路径或者服务端脚本模版ID，可以到服务端脚本模版编辑弹窗中查看 scriptId</p>
+                <p>脚本里面支持的变量有：${PROJECT_ID}、${PROJECT_NAME}、${PROJECT_PATH}</p>
+                <p><b>status</b> 流程执行完脚本后，输出的内容最后一行必须为：running:$pid <b>$pid 为当前项目实际的进程ID</b>。如果输出最后一行不是预期格式项目状态将是未运行</p>
+                <p>配置详情请参考配置示例</p>
+              </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-tabs>
+            <a-tab-pane key="1" tab="DSL 配置">
+              <div style="height: 40vh; overflow-y: scroll">
+                <code-editor v-model="temp.dslContent" :options="{ mode: 'yaml', tabSize: 2, theme: 'abcdef' }"></code-editor>
+              </div>
+            </a-tab-pane>
+            <a-tab-pane key="2" tab="配置示例">
+              <div style="height: 40vh; overflow-y: scroll">
+                <code-editor v-model="PROJECT_DSL_DEFATUL" :options="{ mode: 'yaml', tabSize: 2, theme: 'abcdef', readOnly: true }"></code-editor>
+              </div>
+            </a-tab-pane>
+          </a-tabs>
+        </a-form-model-item>
+        <a-form-model-item v-show="noFileModes.includes(temp.runMode)">
           <template slot="label">
             日志目录
             <a-tooltip v-show="temp.type !== 'edit'">
               <template slot="title">
                 <ul>
                   <li>日志目录是指控制台日志存储目录</li>
-                  <li>默认是和项目文件夹父级</li>
+                  <li>默认是在项目文件夹父级</li>
                   <li>可选择的列表和项目白名单目录是一致的，即相同配置</li>
                 </ul>
               </template>
@@ -198,64 +346,114 @@
             </a-tooltip>
           </template>
           <a-select v-model="temp.logPath" placeholder="请选择日志目录">
+            <a-select-option key="" value="">默认是在项目文件夹父级</a-select-option>
             <a-select-option v-for="access in accessList" :key="access">{{ access }}</a-select-option>
           </a-select>
         </a-form-model-item>
-        <a-form-model-item label="Main Class" prop="mainClass" v-show="temp.runMode && temp.runMode !== 'Jar' && temp.runMode !== 'File'">
+        <a-form-model-item label="Main Class" prop="mainClass" v-show="javaModes.includes(temp.runMode) && temp.runMode !== 'Jar'">
           <a-input v-model="temp.mainClass" placeholder="程序运行的 main 类(jar 模式运行可以不填)" />
+        </a-form-model-item>
+        <a-form-model-item label="JavaExtDirsCp" prop="javaExtDirsCp" v-show="javaModes.includes(temp.runMode) && temp.runMode === 'JavaExtDirsCp'">
+          <a-input v-model="temp.javaExtDirsCp" placeholder="-Dext.dirs=xxx: -cp xx  填写【xxx:xx】" />
         </a-form-model-item>
         <a-form-model-item label="分发后操作" prop="afterOpt">
           <a-select v-model="temp.afterOpt" placeholder="请选择发布后操作">
-            <a-select-option :key="0">不做任何操作</a-select-option>
-            <a-select-option :key="1">并发重启</a-select-option>
-            <a-select-option :key="2">完整顺序重启(有重启失败将结束本次)</a-select-option>
-            <a-select-option :key="3">顺序重启(有重启失败将继续)</a-select-option>
+            <a-select-option v-for="item in afterOptList" :key="item.value">{{ item.title }}</a-select-option>
           </a-select>
+        </a-form-model-item>
+        <a-form-model-item prop="intervalTime">
+          <template slot="label">
+            间隔时间
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title">
+                在执行多节点分发时候使用 顺序重启、完整顺序重启 时候需要保证项目能正常重启,并等待上一个项目启动完成才能关闭下一个项目,请根据自身项目启动时间来配置
+                <li>一般建议 10 秒以上</li>
+              </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-input-number :min="0" v-model="temp.intervalTime" placeholder="分发间隔时间 （顺序重启、完整顺序重启）方式才生效" style="width: 100%" />
+        </a-form-model-item>
+        <a-form-model-item prop="clearOld">
+          <template slot="label">
+            清空发布
+            <a-tooltip v-show="temp.type !== 'edit'">
+              <template slot="title"> 清空发布是指在上传新文件前,会将项目文件夹目录里面的所有文件先删除后再保存新文件 </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
+          <a-switch v-model="temp.clearOld" checked-children="是" un-checked-children="否" />
         </a-form-model-item>
         <!-- 节点 -->
         <a-form-model-item label="分发节点" prop="nodeId">
           <a-select v-model="temp.nodeIdList" mode="multiple" placeholder="请选择分发节点">
-            <a-select-option v-for="node in nodeList" :key="node.key">{{ `${node.title} ( ${node.key} )` }}</a-select-option>
+            <a-select-option v-for="node in nodeList" :key="node.id">{{ `${node.name}` }}</a-select-option>
           </a-select>
         </a-form-model-item>
-        <a-collapse v-show="temp.runMode && temp.runMode !== 'File'">
-          <a-collapse-panel v-for="nodeId in temp.nodeIdList" :key="nodeId" :header="nodeId">
-            <a-form-model-item label="WebHooks" prop="token">
-              <a-input v-model="temp[`${nodeId}_token`]" placeholder="关闭程序时自动请求,非必填，GET请求" />
-            </a-form-model-item>
-            <a-form-model-item label="JVM 参数" prop="jvm">
+        <a-collapse v-show="noFileModes.includes(temp.runMode)">
+          <a-collapse-panel v-for="nodeId in temp.nodeIdList" :key="nodeId" :header="nodeNameMap[nodeId] || nodeId">
+            <a-form-model-item label="JVM 参数" prop="jvm" v-show="javaModes.includes(temp.runMode)">
               <a-textarea v-model="temp[`${nodeId}_jvm`]" :auto-size="{ minRows: 3, maxRows: 3 }" placeholder="jvm参数,非必填.如：-Xms512m -Xmx512m" />
             </a-form-model-item>
-            <a-form-model-item label="args 参数" prop="args">
-              <a-textarea v-model="temp[`${nodeId}_args`]" :auto-size="{ minRows: 3, maxRows: 3 }" placeholder="Main 函数 args 参数，非必填. 如：--service.port=8080" />
+            <a-form-model-item label="args 参数" prop="args" v-show="javaModes.includes(temp.runMode)">
+              <a-textarea v-model="temp[`${nodeId}_args`]" :auto-size="{ minRows: 3, maxRows: 3 }" placeholder="Main 函数 args 参数，非必填. 如：--server.port=8080" />
             </a-form-model-item>
-            <!-- 副本信息 -->
-            <a-row v-for="replica in temp[`${nodeId}_javaCopyItemList`]" :key="replica.id">
-              <a-form-model-item :label="`副本 ${replica.id} JVM 参数`" prop="jvm">
-                <a-textarea v-model="replica.jvm" :auto-size="{ minRows: 3, maxRows: 3 }" class="replica-area" placeholder="jvm参数,非必填.如：-Xms512m -Xmx512m" />
-              </a-form-model-item>
-              <a-form-model-item :label="`副本 ${replica.id} args 参数`" prop="args">
-                <a-textarea v-model="replica.args" :auto-size="{ minRows: 3, maxRows: 3 }" class="replica-area" placeholder="Main 函数 args 参数，非必填. 如：--service.port=8080" />
-              </a-form-model-item>
-              <a-tooltip placement="topLeft" title="已经添加成功的副本需要在副本管理页面去删除" class="replica-btn-del">
-                <a-button :disabled="!replica.deleteAble" type="danger" @click="handleDeleteReplica(nodeId, replica)">删除</a-button>
-              </a-tooltip>
-            </a-row>
-            <!-- 添加副本 -->
-            <a-form-model-item>
+            <a-form-model-item prop="autoStart" v-show="noFileModes.includes(temp.runMode)">
               <template slot="label">
-                副本操作
+                自启动
+                <a-tooltip v-show="temp.type !== 'edit'">
+                  <template slot="title">插件端启动的时候检查项目状态，如果项目状态是未运行则尝试执行启动项目</template>
+                  <a-icon type="question-circle" theme="filled" />
+                </a-tooltip>
+              </template>
+              <a-switch v-model="temp[`${nodeId}_autoStart`]" checked-children="开" un-checked-children="关" />
+            </a-form-model-item>
+            <a-form-model-item prop="token" v-show="noFileModes.includes(temp.runMode)">
+              <template slot="label">
+                WebHooks
                 <a-tooltip v-show="temp.type !== 'edit'">
                   <template slot="title">
                     <ul>
-                      <li>副本是指同一个项目在一个节点（服务器）中运行多份</li>
+                      <li>项目启动,停止,重启都将请求对应的地址</li>
+                      <li>传人参数有：projectId、projectName、type、copyId、result</li>
+                      <li>type 的值有：stop、beforeStop、start、beforeRestart</li>
                     </ul>
                   </template>
                   <a-icon type="question-circle" theme="filled" />
                 </a-tooltip>
               </template>
-              <a-button type="primary" @click="handleAddReplica(nodeId)">添加副本</a-button>
+              <a-input v-model="temp[`${nodeId}_token`]" placeholder="项目启动,停止,重启都将请求对应的地址,非必填，GET请求" />
             </a-form-model-item>
+
+            <div v-if="javaModes.includes(temp.runMode)">
+              <!-- 副本信息 -->
+              <a-row v-for="replica in temp[`${nodeId}_javaCopyItemList`]" :key="replica.id">
+                <a-form-model-item :label="`副本 ${replica.id} JVM 参数`" prop="jvm">
+                  <a-textarea v-model="replica.jvm" :auto-size="{ minRows: 3, maxRows: 3 }" class="replica-area" placeholder="jvm参数,非必填.如：-Xms512m -Xmx512m" />
+                </a-form-model-item>
+                <a-form-model-item :label="`副本 ${replica.id} args 参数`" prop="args">
+                  <a-textarea v-model="replica.args" :auto-size="{ minRows: 3, maxRows: 3 }" class="replica-area" placeholder="Main 函数 args 参数，非必填. 如：--server.port=8080" />
+                </a-form-model-item>
+                <a-tooltip placement="topLeft" title="已经添加成功的副本需要在副本管理页面去删除" class="replica-btn-del">
+                  <a-button :disabled="!replica.deleteAble" type="danger" @click="handleDeleteReplica(nodeId, replica)">删除</a-button>
+                </a-tooltip>
+              </a-row>
+              <!-- 添加副本 -->
+              <a-form-model-item>
+                <template slot="label">
+                  副本操作
+                  <a-tooltip v-show="temp.type !== 'edit'">
+                    <template slot="title">
+                      <ul>
+                        <li>副本是指同一个项目在一个节点（服务器）中运行多份</li>
+                      </ul>
+                    </template>
+                    <a-icon type="question-circle" theme="filled" />
+                  </a-tooltip>
+                </template>
+                <a-button type="primary" @click="handleAddReplica(nodeId)">添加副本</a-button>
+              </a-form-model-item>
+            </div>
           </a-collapse-panel>
         </a-collapse>
       </a-form-model>
@@ -281,59 +479,90 @@
         <!-- <a-form-model-item label="是否为压缩包" v-if="temp.type == 'download'">
           <a-switch v-model="temp.unzip" checked-children="是" un-checked-children="否" v-decorator="['unzip', { valuePropName: 'checked' }]" />
         </a-form-model-item> -->
-        <a-form-model-item label="清空发布" prop="clearOld">
+        <a-form-model-item prop="clearOld">
+          <template slot="label">
+            清空发布
+            <a-tooltip>
+              <template slot="title"> 清空发布是指在上传新文件前,会将项目文件夹目录里面的所有文件先删除后再保存新文件 </template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
           <a-switch v-model="temp.clearOld" checked-children="是" un-checked-children="否" />
         </a-form-model-item>
-        <a-form-model-item label="是否解压" prop="unzip">
+        <a-form-model-item prop="unzip">
+          <template slot="label">
+            是否解压
+            <a-tooltip>
+              <template slot="title"> 如果上传的压缩文件是否自动解压 支持的压缩包类型有 tar.bz2, tar.gz, tar, bz2, zip, gz</template>
+              <a-icon type="question-circle" theme="filled" />
+            </a-tooltip>
+          </template>
           <a-switch v-model="temp.autoUnzip" checked-children="是" un-checked-children="否" />
         </a-form-model-item>
         <a-form-model-item label="分发后操作" prop="afterOpt">
           <a-select v-model="temp.afterOpt" placeholder="请选择发布后操作">
-            <a-select-option :key="0">不做任何操作</a-select-option>
-            <a-select-option :key="1">并发重启</a-select-option>
-            <a-select-option :key="2">完整顺序重启(有重启失败将结束本次)</a-select-option>
-            <a-select-option :key="3">顺序重启(有重启失败将继续)</a-select-option>
+            <a-select-option v-for="item in afterOptList" :key="item.value">{{ item.title }}</a-select-option>
           </a-select>
         </a-form-model-item>
       </a-form-model>
     </a-modal>
     <!-- 项目文件组件 -->
     <a-drawer :title="drawerTitle" placement="right" width="85vw" :visible="drawerFileVisible" @close="onFileClose">
-      <file v-if="drawerFileVisible" :nodeId="temp.nodeId" :projectId="temp.projectId" />
+      <file v-if="drawerFileVisible" :id="temp.id" :nodeId="temp.nodeId" :projectId="temp.projectId" @goConsole="goConsole" />
     </a-drawer>
     <!-- 项目控制台组件 -->
     <a-drawer :title="drawerTitle" placement="right" width="85vw" :visible="drawerConsoleVisible" @close="onConsoleClose">
-      <console v-if="drawerConsoleVisible" :nodeId="temp.nodeId" :projectId="temp.projectId" />
+      <console v-if="drawerConsoleVisible" :id="temp.id" :nodeId="temp.nodeId" :projectId="temp.projectId" @goFile="goFile" />
     </a-drawer>
   </div>
 </template>
 <script>
-import { mapGetters } from "vuex";
-import File from "../node/node-layout/project/project-file";
-import Console from "../node/node-layout/project/project-console";
-import { getDishPatchList, getDispatchProject, getReqId, editDispatch, editDispatchProject, uploadDispatchFile, getDispatchWhiteList, deleteDisPatch, remoteDownload } from "../../api/dispatch";
-import { getNodeProjectList } from "../../api/node";
-import { getProjectData } from "../../api/node-project";
+import File from "@/pages/node/node-layout/project/project-file";
+import Console from "@/pages/node/node-layout/project/project-console";
+import codeEditor from "@/components/codeEditor";
+import {
+  getDishPatchList,
+  getDispatchProject,
+  editDispatch,
+  editDispatchProject,
+  uploadDispatchFile,
+  getDispatchWhiteList,
+  releaseDelDisPatch,
+  delDisPatchProject,
+  remoteDownload,
+  afterOptList,
+  statusMap,
+  unbindOutgiving,
+} from "@/api/dispatch";
+import { getNodeListAll, getProjectListAll } from "@/api/node";
+import { getProjectData, runModeList, javaModes, noFileModes } from "@/api/node-project";
+import { itemGroupBy, parseTime } from "@/utils/time";
+import { PAGE_DEFAULT_LIMIT, PAGE_DEFAULT_SIZW_OPTIONS, PAGE_DEFAULT_SHOW_TOTAL, PAGE_DEFAULT_LIST_QUERY, PROJECT_DSL_DEFATUL } from "@/utils/const";
 export default {
   components: {
     File,
     Console,
+    codeEditor,
   },
   data() {
     return {
       loading: false,
       childLoading: false,
-      tableHeight: "70vh",
+      listQuery: Object.assign({}, PAGE_DEFAULT_LIST_QUERY),
+      statusMap: statusMap,
+      javaModes: javaModes,
+      noFileModes: noFileModes,
+      PROJECT_DSL_DEFATUL,
       list: [],
       accessList: [],
       nodeList: [],
       projectList: [],
-      nodeProjectMap: {},
+      afterOptList,
       targetKeys: [],
-      reqId: "",
+      // reqId: "",
       temp: {},
       fileList: [],
-      runModeList: ["ClassPath", "Jar", "JarWar", "JavaExtDirsCp", "File"],
+      runModeList: runModeList,
       list_expanded: {},
       linkDispatchVisible: false,
       editDispatchVisible: false,
@@ -342,22 +571,38 @@ export default {
       drawerFileVisible: false,
       drawerConsoleVisible: false,
       nodeNameList: [],
+      nodeNameMap: {},
       dispatchList: [],
       totalProjectNum: 0,
       columns: [
-        { title: "分发 ID", dataIndex: "id", width: 100, ellipsis: true, scopedSlots: { customRender: "id" } },
-        { title: "分发名称", dataIndex: "name", width: 150, ellipsis: true, scopedSlots: { customRender: "name" } },
-        { title: "类型", dataIndex: "outGivingProject", width: 100, ellipsis: true, scopedSlots: { customRender: "outGivingProject" } },
-        { title: "操作", dataIndex: "operation", scopedSlots: { customRender: "operation" }, width: 380, align: "left" },
+        { title: "分发 ID", dataIndex: "id", ellipsis: true, scopedSlots: { customRender: "id" } },
+        { title: "分发名称", dataIndex: "name", ellipsis: true, scopedSlots: { customRender: "name" } },
+        { title: "类型", dataIndex: "outGivingProject", width: 90, ellipsis: true, scopedSlots: { customRender: "outGivingProject" } },
+        { title: "分发后", dataIndex: "afterOpt", ellipsis: true, width: 100, scopedSlots: { customRender: "afterOpt" } },
+        { title: "清空发布", dataIndex: "clearOld", align: "center", ellipsis: true, width: 100, scopedSlots: { customRender: "clearOld" } },
+        { title: "间隔时间", dataIndex: "intervalTime", width: 90, ellipsis: true, scopedSlots: { customRender: "intervalTime" } },
+
+        { title: "状态", dataIndex: "status", ellipsis: true, width: 110, scopedSlots: { customRender: "status" } },
+        {
+          title: "修改时间",
+          dataIndex: "modifyTimeMillis",
+          ellipsis: true,
+          sorter: true,
+          customRender: (text) => {
+            return parseTime(text);
+          },
+          width: 170,
+        },
+        { title: "操作", dataIndex: "operation", scopedSlots: { customRender: "operation" }, width: 210, align: "center" },
       ],
       childColumns: [
-        { title: "节点名称", dataIndex: "nodeId", width: 100, ellipsis: true, scopedSlots: { customRender: "nodeId" } },
-        { title: "项目名称", dataIndex: "projectName", width: 120, ellipsis: true, scopedSlots: { customRender: "projectName" } },
+        { title: "节点名称", dataIndex: "nodeId", ellipsis: true, scopedSlots: { customRender: "nodeId" } },
+        { title: "项目名称", dataIndex: "projectName", ellipsis: true, scopedSlots: { customRender: "projectName" } },
         { title: "项目状态", dataIndex: "projectStatus", width: 120, ellipsis: true, scopedSlots: { customRender: "projectStatus" } },
         { title: "分发状态", dataIndex: "outGivingStatus", width: 120 },
-        { title: "分发结果", dataIndex: "outGivingResult", width: 180, ellipsis: true, scopedSlots: { customRender: "outGivingResult" } },
+        { title: "分发结果", dataIndex: "outGivingResult", ellipsis: true, scopedSlots: { customRender: "outGivingResult" } },
         { title: "最后分发时间", dataIndex: "lastTime", width: 180, ellipsis: true, scopedSlots: { customRender: "lastTime" } },
-        { title: "操作", dataIndex: "child-operation", scopedSlots: { customRender: "child-operation" }, width: 200, align: "left" },
+        { title: "操作", dataIndex: "child-operation", scopedSlots: { customRender: "child-operation" }, width: 120, align: "center" },
       ],
       rules: {
         id: [{ required: true, message: "请输入项目ID", trigger: "blur" }],
@@ -367,68 +612,64 @@ export default {
         whitelistDirectory: [{ required: true, message: "请选择项目白名单路径", trigger: "blur" }],
         lib: [{ required: true, message: "请输入项目文件夹", trigger: "blur" }],
         afterOpt: [{ required: true, message: "请选择发布后操作", trigger: "blur" }],
+        url: [{ required: true, message: "请输入远程地址", trigger: "blur" }],
       },
     };
   },
   computed: {
-    ...mapGetters(["getGuideFlag"]),
     filePath() {
       return (this.temp.whitelistDirectory || "") + (this.temp.lib || "");
     },
-  },
-  watch: {
-    getGuideFlag() {
-      this.introGuide();
+    // 分页
+    pagination() {
+      return {
+        total: this.listQuery.total,
+        current: this.listQuery.page || 1,
+        pageSize: this.listQuery.limit || PAGE_DEFAULT_LIMIT,
+        pageSizeOptions: PAGE_DEFAULT_SIZW_OPTIONS,
+        showSizeChanger: true,
+        showQuickJumper: true,
+        showTotal: (total) => {
+          return PAGE_DEFAULT_SHOW_TOTAL(total, this.listQuery);
+        },
+      };
     },
   },
+  watch: {},
   created() {
-    this.calcTableHeight();
-    this.handleFilter();
+    this.loadData();
+    this.loadNodeList();
   },
   methods: {
     // 页面引导
     introGuide() {
-      if (this.getGuideFlag) {
-        this.$introJs()
-          .setOptions({
-            hidePrev: true,
-            steps: [
-              {
-                title: "Jpom 导航助手",
-                element: document.querySelector(".jpom-project-whitelist"),
-                intro: "项目白名单需要在侧边栏菜单<b>分发白名单</b>组件里面去设置",
-              },
-            ],
-          })
-          .start();
-        return false;
-      }
-      this.$introJs().exit();
-    },
-    // 计算表格高度
-    calcTableHeight() {
-      this.$nextTick(() => {
-        this.tableHeight = window.innerHeight - this.$refs["filter"].clientHeight - 135;
+      this.$store.dispatch("tryOpenGuide", {
+        key: "dispatch",
+        options: {
+          hidePrev: true,
+          steps: [
+            {
+              title: "导航助手",
+              element: document.querySelector(".jpom-project-whitelist"),
+              intro: "项目白名单需要在侧边栏菜单<b>分发白名单</b>组件里面去设置",
+            },
+          ],
+        },
       });
     },
+
     // 加载数据
-    loadData() {
+    loadData(pointerEvent) {
       this.list = [];
+      this.listQuery.page = pointerEvent?.altKey || pointerEvent?.ctrlKey ? 1 : this.listQuery.page;
       this.loading = true;
       this.childLoading = false;
-      getDishPatchList().then((res) => {
+      getDishPatchList(this.listQuery).then((res) => {
         if (res.code === 200) {
-          this.list = res.data;
+          this.list = res.data.result;
+          this.listQuery.total = res.data.total;
         }
         this.loading = false;
-      });
-    },
-    // 获取 reqId
-    loadReqId() {
-      getReqId().then((res) => {
-        if (res.code === 200) {
-          this.reqId = res.data;
-        }
       });
     },
     // 加载项目白名单列表
@@ -447,11 +688,6 @@ export default {
         this.handleReload(record);
       }
     },
-    // 筛选
-    handleFilter() {
-      this.loadData();
-      this.loadNodeList();
-    },
     // 关联分发
     handleLink() {
       this.$refs["linkDispatchForm"] && this.$refs["linkDispatchForm"].resetFields();
@@ -461,40 +697,55 @@ export default {
         name: "",
         projectId: "",
       };
-      this.loadReqId();
+      this.loadNodeList(() => {
+        this.loadProjectListAll();
+      });
       this.linkDispatchVisible = true;
     },
     // 编辑分发
     handleEditDispatch(record) {
       this.$nextTick(() => {
         this.$refs["linkDispatchForm"] && this.$refs["linkDispatchForm"].resetFields();
-        //分发节点重新渲染
-        record.outGivingNodeProjectList.forEach((ele) => {
-          let index = "";
-          let projects = [];
-          this.nodeNameList.forEach((item, idx) => {
-            if (item.id === ele.nodeId) {
-              index = idx;
-              projects = item.projects;
-              item.openStatus = false;
-            }
+      });
+      this.loadNodeList(() => {
+        this.loadProjectListAll(() => {
+          //分发节点重新渲染
+          this.temp = {};
+          JSON.parse(record.outGivingNodeProjectList).forEach((ele, eleIndex) => {
+            let index = "";
+            let projects = [];
+            this.nodeNameList.forEach((item, idx) => {
+              if (item.id === ele.nodeId) {
+                index = idx;
+                projects = item.projects;
+                item.openStatus = false;
+              }
+            });
+            this.temp[`node_${ele.nodeId}_${eleIndex}`] = ele.projectId;
+            this.dispatchList.push({
+              nodeId: ele.nodeId,
+              projectId: ele.projectId,
+              index: index,
+              project: projects,
+              status: true,
+            });
+            // console.log(ele, eleIndex);
           });
-          this.temp[`node_${ele.nodeId}`] = ele.projectId;
-          this.dispatchList.push({
-            nodeId: ele.nodeId,
-            projectId: ele.projectId,
-            index: index,
-            project: projects,
-            status: true,
-          });
+          this.temp = { ...this.temp };
+
+          this.temp = {
+            ...this.temp,
+            type: "edit",
+            projectId: record.projectId,
+            name: record.name,
+            afterOpt: record.afterOpt,
+            id: record.id,
+            intervalTime: record.intervalTime,
+            clearOld: record.clearOld,
+          };
+          // console.log(this.temp);
+          this.linkDispatchVisible = true;
         });
-        this.temp.type = "edit";
-        this.temp.projectId = record.projectId;
-        this.temp.name = record.name;
-        this.temp.afterOpt = record.afterOpt;
-        this.temp.id = record.id;
-        this.loadReqId();
-        this.linkDispatchVisible = true;
       });
     },
     // 选择项目
@@ -528,25 +779,25 @@ export default {
         }
         // 校验分发节点数据
         if (this.dispatchList.length === 0) {
-          return this.$message.error("请添加分发节点!");
+          this.$notification.error({ message: "请添加分发节点!" });
+          return false;
         } else if (this.dispatchList.length < 2) {
-          return this.$message.error("至少选择2个节点项目");
+          this.$notification.error({ message: "至少选择2个节点项目" });
+          return false;
         }
-        // 设置 reqId
-        this.temp.reqId = this.reqId;
+
         // 提交
         editDispatch(this.temp).then((res) => {
           if (res.code === 200) {
             // 成功
             this.$notification.success({
               message: res.msg,
-              duration: 2,
             });
             this.targetKeys = [];
             this.$refs["linkDispatchForm"].resetFields();
             this.linkDispatchVisible = false;
             this.clearDispatchList();
-            this.handleFilter();
+            this.loadData();
           } else {
             this.targetKeys = [];
           }
@@ -555,75 +806,88 @@ export default {
     },
     // 添加分发项目
     handleAdd() {
-      this.temp = {
-        type: "add",
-        id: "",
-        name: "",
-        afterOpt: undefined,
-        runMode: undefined,
-        mainClass: "",
-        javaExtDirsCp: "",
-        whitelistDirectory: undefined,
-        lib: "",
-        nodeIdList: [],
-      };
-      // 添加 javaCopyItemList
-      this.nodeList.forEach((node) => {
-        this.temp[`${node.key}_javaCopyItemList`] = [];
-      });
-      this.loadAccesList();
-      this.loadReqId();
-      this.editDispatchVisible = true;
-      this.$nextTick(() => {
-        this.$refs["editDispatchForm"].resetFields();
-        setTimeout(() => {
-          this.introGuide();
-        }, 500);
+      this.loadNodeList(() => {
+        this.temp = {
+          type: "add",
+          id: "",
+          name: "",
+          afterOpt: undefined,
+          runMode: undefined,
+          mainClass: "",
+          javaExtDirsCp: "",
+          whitelistDirectory: undefined,
+          lib: "",
+          nodeIdList: [],
+          intervalTime: undefined,
+          clearOld: false,
+        };
+        // 添加 javaCopyItemList
+        this.nodeList.forEach((node) => {
+          this.temp[`${node.id}_javaCopyItemList`] = [];
+        });
+        this.loadAccesList();
+
+        this.editDispatchVisible = true;
+        this.$nextTick(() => {
+          this.$refs["editDispatchForm"].resetFields();
+          setTimeout(() => {
+            this.introGuide();
+          }, 500);
+        });
       });
     },
     // 编辑分发项目
     handleEditDispatchProject(record) {
       this.$nextTick(() => {
         this.$refs["editDispatchForm"] && this.$refs["editDispatchForm"].resetFields();
+      });
+
+      this.loadNodeList(() => {
         //
         this.temp = {};
-        record.outGivingNodeProjectList.forEach((ele) => {
+        JSON.parse(record.outGivingNodeProjectList).forEach(async (ele) => {
           const params = {
             id: ele.projectId,
             nodeId: ele.nodeId,
           };
-          getProjectData(params).then((res) => {
-            if (res.code === 200) {
-              // 如果 temp.id 不存在
-              if (!this.temp.id) {
-                this.temp = {
-                  id: res.data.id,
-                  name: res.data.name,
-                  type: "edit",
-                  afterOpt: record.afterOpt,
-                  runMode: res.data.runMode,
-                  mainClass: res.data.mainClass,
-                  javaExtDirsCp: res.data.javaExtDirsCp,
-                  whitelistDirectory: res.data.whitelistDirectory,
-                  lib: res.data.lib,
-                  logPath: res.data.logPath,
-                  nodeIdList: [],
-                };
-              }
-              // 添加 nodeIdList
-              this.temp.nodeIdList.push(ele.nodeId);
-              // 添加 jvm token args
-              this.temp[`${ele.nodeId}_jvm`] = res.data.jvm || "";
-              this.temp[`${ele.nodeId}_token`] = res.data.token || "";
-              this.temp[`${ele.nodeId}_args`] = res.data.args || "";
-              // 添加 javaCopyItemList
-              this.temp[`${ele.nodeId}_javaCopyItemList`] = res.data.javaCopyItemList || [];
+          const res = await getProjectData(params);
+          if (res.code === 200) {
+            // 如果 temp.id 不存在
+            if (!this.temp.id) {
+              this.temp = {
+                id: res.data.id,
+                name: res.data.name,
+                type: "edit",
+                afterOpt: record.afterOpt,
+                runMode: res.data.runMode,
+                mainClass: res.data.mainClass,
+                javaExtDirsCp: res.data.javaExtDirsCp,
+                whitelistDirectory: res.data.whitelistDirectory,
+                lib: res.data.lib,
+                logPath: res.data.logPath,
+                dslContent: res.data.dslContent,
+                nodeIdList: [],
+                intervalTime: record.intervalTime,
+                clearOld: record.clearOld,
+              };
             }
-          });
+            // 添加 nodeIdList
+            this.temp.nodeIdList.push(ele.nodeId);
+            // 添加 jvm token args
+            this.temp[`${ele.nodeId}_jvm`] = res.data.jvm || "";
+            this.temp[`${ele.nodeId}_token`] = res.data.token || "";
+            this.temp[`${ele.nodeId}_args`] = res.data.args || "";
+            this.temp[`${ele.nodeId}_autoStart`] = res.data.autoStart;
+
+            // 添加 javaCopyItemList
+            this.temp[`${ele.nodeId}_javaCopyItemList`] = res.data.javaCopyItemList || [];
+            this.temp = { ...this.temp };
+          }
         });
+
         // 加载其他数据
         this.loadAccesList();
-        this.loadReqId();
+
         this.editDispatchVisible = true;
       });
     },
@@ -658,40 +922,49 @@ export default {
         if (!valid) {
           return false;
         }
+        const tempData = Object.assign({}, this.temp);
         // 检查
-        if (this.temp.nodeIdList.length < 2) {
+        if (tempData.nodeIdList.length < 2) {
           this.$notification.warn({
             message: "请至少选择 2 个节点",
-            duration: 2,
           });
           return false;
         }
         // 设置 reqId
-        this.temp.reqId = this.reqId;
+        // this.temp.reqId = this.reqId;
+        this.nodeList.forEach((item) => {
+          //console.log(item);
+          //delete this.temp[`add_${item.id}`];
+          delete tempData[`${item.id}}_javaCopyIds`];
+        });
         // 设置节点
-        this.temp.nodeIdList.forEach((key) => {
-          this.temp[`add_${key}`] = key;
+        tempData.nodeIdList.forEach((key) => {
+          // this.temp[`add_${key}`] = key;
           // 设置副本
-          this.temp[`${key}_javaCopyIds`] = "";
-          this.temp[`${key}_javaCopyItemList`]?.forEach((element) => {
-            this.temp[`${key}_javaCopyIds`] += `${element.id},`;
-            this.temp[`${key}_jvm_${element.id}`] = element.jvm;
-            this.temp[`${key}_args_${element.id}`] = element.args;
+          tempData[`${key}_javaCopyIds`] = "";
+          const copyIds = [];
+          tempData[`${key}_javaCopyItemList`]?.forEach((element) => {
+            //this.temp[`${key}_javaCopyIds`] += `${element.id},`;
+            copyIds.push(element.id);
+            tempData[`${key}_jvm_${element.id}`] = element.jvm;
+            tempData[`${key}_args_${element.id}`] = element.args;
           });
           // 移除多余的后缀 ,
-          this.temp[`${key}_javaCopyIds`] = this.temp[`${key}_javaCopyIds`].substring(0, this.temp[`${key}_javaCopyIds`].length - 1);
+          tempData[`${key}_javaCopyIds`] = copyIds.join(",");
+          //  this.temp[`${key}_javaCopyIds`].substring(0, this.temp[`${key}_javaCopyIds`].length - 1);
         });
+        tempData.nodeIds = tempData.nodeIdList.join(",");
+        delete tempData.nodeIdList;
         // 提交
-        editDispatchProject(this.temp).then((res) => {
+        editDispatchProject(tempData).then((res) => {
           if (res.code === 200) {
             // 成功
             this.$notification.success({
               message: res.msg,
-              duration: 2,
             });
             this.$refs["editDispatchForm"].resetFields();
             this.editDispatchVisible = false;
-            this.handleFilter();
+            this.loadData();
           }
         });
       });
@@ -732,19 +1005,18 @@ export default {
         if (!valid) {
           return false;
         }
-        const key = this.temp.type;
+        // const key = this.temp.type;
         if (this.temp.type == "upload") {
           // 判断文件
           if (this.fileList.length === 0) {
             this.$notification.error({
               message: "请选择文件",
-              duration: 2,
             });
             return false;
           }
           // 上传文件
           const formData = new FormData();
-          this.$message.loading({ content: "正在上传文件...", key, duration: 0 });
+          //this.$message.loading({ content: "正在上传文件...", key, duration: 0 });
           formData.append("file", this.fileList[0]);
           formData.append("id", this.temp.id);
           formData.append("afterOpt", this.temp.afterOpt);
@@ -754,13 +1026,12 @@ export default {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
-              this.$message.success({ content: "上传成功,开始分发!", key, duration: 2 });
-              this.$refs["dispatchForm"].resetFields();
+              // this.$message.success({ content: "上传成功,开始分发!", key });
               this.fileList = [];
               this.loadData();
               this.dispatchVisible = false;
+              this.$refs["dispatchForm"].resetFields();
             }
           });
           return true;
@@ -769,22 +1040,23 @@ export default {
           if (!this.temp.url) {
             this.$notification.error({
               message: "请填写远程URL",
-              duration: 2,
             });
             return false;
           }
           // 远程下载
-          this.$message.loading({ content: "正在下载文件...", key, duration: 0 });
+          // this.$message.loading({ content: "正在下载文件...", key, duration: 0 });
           remoteDownload(this.temp).then((res) => {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
-              this.$message.success({ content: "下载成功,开始分发!", key, duration: 2 });
-              //this.$refs["dispatchForm"].resetFields();
+              // this.$message.success({ content: "下载成功,开始分发!", key });
+
               this.loadData();
               this.dispatchVisible = false;
+              this.$refs["dispatchForm"] && this.$refs["dispatchForm"].resetFields();
+            } else {
+              // this.$message.warn({ content: "下载失败", key });
             }
           });
           return true;
@@ -793,20 +1065,59 @@ export default {
     },
     // 删除
     handleDelete(record) {
+      if (record.outGivingProject) {
+        this.$confirm({
+          title: "系统提示",
+          content: "真的要删除分发信息么？删除后节点下面的项目也都将删除",
+          okText: "确认",
+          cancelText: "取消",
+          onOk: () => {
+            // 删除
+            delDisPatchProject(record.id).then((res) => {
+              if (res.code === 200) {
+                this.$notification.success({
+                  message: res.msg,
+                });
+                this.loadData();
+              }
+            });
+          },
+        });
+        return;
+      }
       this.$confirm({
         title: "系统提示",
-        content: "真的要删除分发信息么？",
+        content: "真的要释放分发信息么？释放之后节点下面的项目信息还会保留，如需删除还需要到节点管理中操作",
         okText: "确认",
         cancelText: "取消",
         onOk: () => {
           // 删除
-          deleteDisPatch(record.id).then((res) => {
+          releaseDelDisPatch(record.id).then((res) => {
             if (res.code === 200) {
               this.$notification.success({
                 message: res.msg,
-                duration: 2,
               });
-              this.handleFilter();
+              this.loadData();
+            }
+          });
+        },
+      });
+    },
+    // 解绑
+    handleUnbind(record) {
+      this.$confirm({
+        title: "系统提示",
+        content: "真的要解绑节点么？解绑会检查数据关联性,不会真实请求节点解绑,一般用于服务器无法连接且已经确定不再使用。如果误操作可能冗余数据",
+        okText: "确认",
+        cancelText: "取消",
+        onOk: () => {
+          // 删除
+          unbindOutgiving(record.id).then((res) => {
+            if (res.code === 200) {
+              this.$notification.success({
+                message: res.msg,
+              });
+              this.loadData();
             }
           });
         },
@@ -832,44 +1143,45 @@ export default {
     onConsoleClose() {
       this.drawerConsoleVisible = false;
     },
-    // 加载节点以及项目
-    loadNodeList() {
-      this.nodeList = [];
-      getNodeProjectList().then((res) => {
+    //前往控制台
+    goConsole() {
+      //关闭文件
+      this.onFileClose();
+      this.handleConsole(this.temp);
+    },
+    //前往文件
+    goFile() {
+      // 关闭控制台
+      this.onConsoleClose();
+      this.handleFile(this.temp);
+    },
+    loadProjectListAll(fn) {
+      getProjectListAll().then((res) => {
         if (res.code === 200) {
-          this.nodeNameList = res.data;
-          // 新增或者编辑分发项目时需要
-          res.data.forEach((node) => {
-            const nodeItem = {
-              title: node.name,
-              key: node.id,
-              disabled: true,
-              projectPlaceholder: "请选择项目",
-              projectDisabled: true,
-            };
-            node.projects.forEach((project) => {
-              ++this.totalProjectNum;
-              // 如果项目 ID 存在就不用继续添加
-              const index = this.projectList.findIndex((p) => p.id === project.id);
-              if (index === -1) {
-                const projectItem = {
-                  name: `${project.name} ( ${project.id} )`,
-                  id: project.id,
-                };
-                this.projectList.push(projectItem);
-              }
-              // 判断对象是否存在
-              if (!this.nodeProjectMap[`${project.id}`]) {
-                this.nodeProjectMap[`${project.id}`] = [...(this.nodeProjectMap[`${project.id}`] || []), node.id];
-              } else {
-                const tempIndex = this.nodeProjectMap[`${project.id}`].findIndex((nodeId) => node.id === nodeId);
-                if (tempIndex === -1) {
-                  this.nodeProjectMap[`${project.id}`].push(node.id);
-                }
-              }
-            });
-            this.nodeList.push(nodeItem);
+          this.totalProjectNum = res.data ? res.data.length : 0;
+          this.nodeNameList = itemGroupBy(res.data, "nodeId", "id", "projects");
+          this.nodeNameList = this.nodeNameList.map((item) => {
+            item.nodeData = this.nodeList.filter((node) => node.id === item.id)[0];
+            return item;
           });
+          // .filter((item) => {
+          //   return item.nodeData;
+          // });
+          fn && fn();
+          // console.log(this.nodeNameList);
+        }
+      });
+    },
+    // 加载节点以及项目
+    loadNodeList(fn) {
+      this.nodeList = [];
+      getNodeListAll().then((res) => {
+        if (res.code === 200) {
+          this.nodeList = res.data;
+          this.nodeList.map((item) => {
+            this.nodeNameMap[item.id] = item.name;
+          });
+          fn && fn();
         }
       });
     },
@@ -891,11 +1203,14 @@ export default {
     // 选择项目
     handleProjectChange(value, index) {
       this.dispatchList[index].projectId = value;
-      this.temp["node_" + this.dispatchList[index].nodeId] = value;
+      this.temp["node_" + this.dispatchList[index].nodeId + "_" + index] = value;
     },
     // 添加分发
     addDispachList() {
-      if (this.dispatchList.length >= this.totalProjectNum) return this.$message.error("已无更多节点项目，请先创建项目");
+      if (this.dispatchList.length >= this.totalProjectNum) {
+        this.$$notification.error("已无更多节点项目，请先创建项目");
+        return false;
+      }
       this.dispatchList.push({ nodeId: "", projectId: "", index: "", project: [], status: true, placeholder: "请先选择节点", disabled: true });
     },
     // 删除分发
@@ -903,7 +1218,7 @@ export default {
       if (this.dispatchList[value].index !== "") {
         this.nodeNameList[this.dispatchList[value].index].openStatus = true;
       }
-      delete this.temp[`node_${this.dispatchList[value].nodeId}`];
+      delete this.temp[`node_${this.dispatchList[value].nodeId}_${this.dispatchList[value].index}`];
       this.dispatchList[value].status = false;
       this.dispatchList.splice(value, 1);
     },
@@ -914,6 +1229,16 @@ export default {
         this.nodeNameList[node].openStatus = true;
       }
     },
+    // 分页、排序、筛选变化时触发
+    changePage(pagination, filters, sorter) {
+      this.listQuery.page = pagination.current;
+      this.listQuery.limit = pagination.pageSize;
+      if (sorter) {
+        this.listQuery.order = sorter.order;
+        this.listQuery.order_field = sorter.field;
+      }
+      this.loadData();
+    },
   },
 };
 </script>
@@ -921,15 +1246,12 @@ export default {
 .filter {
   margin-bottom: 10px;
 }
-.ant-btn {
-  margin-right: 10px;
-}
 .replica-area {
   width: 300px;
 }
 .replica-btn-del {
   position: absolute;
-  right: 0px;
+  right: 0;
   top: 74px;
 }
 </style>

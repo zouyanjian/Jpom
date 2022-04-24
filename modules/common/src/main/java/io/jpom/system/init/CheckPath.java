@@ -1,15 +1,39 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.system.init;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.exceptions.ExceptionUtil;
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.util.ClassUtil;
+import cn.hutool.core.util.ObjectUtil;
 import cn.jiangzeyin.common.DefaultSystemLog;
 import cn.jiangzeyin.common.PreLoadClass;
 import cn.jiangzeyin.common.PreLoadMethod;
+import io.jpom.JpomApplication;
+import io.jpom.common.JpomManifest;
 import io.jpom.system.ConfigBean;
 import io.jpom.system.ExtConfigBean;
-import io.jpom.util.StringUtil;
+import io.jpom.util.JvmUtil;
 import org.springframework.http.HttpMethod;
 
 import javax.servlet.http.HttpServletRequest;
@@ -27,35 +51,23 @@ import java.util.Map;
  */
 @PreLoadClass(value = Integer.MIN_VALUE)
 public class CheckPath {
-	/**
-	 * 待检查的类
-	 */
-	private static final String[] CLASS_NAME = new String[]{"sun.jvmstat.monitor.MonitorException", "com.sun.tools.attach.VirtualMachine"};
-
-
-	@PreLoadMethod(1)
-	private static void checkToolsJar() {
-		try {
-			for (String item : CLASS_NAME) {
-				ClassUtil.loadClass(item, false);
-			}
-		} catch (Exception e) {
-			File file = StringUtil.getToolsJar();
-			if (file.exists() && file.isFile()) {
-				DefaultSystemLog.getLog().error("Jpom未能正常加载tools.jar,请检查当前系统环境变量是否配置：JAVA_HOME，或者检查Jpom管理命令是否正确", e);
-			} else {
-				DefaultSystemLog.getLog().error("当前JDK中没有找到tools.jar,请检查当前JDK是否安装完整，文件完整路径是：" + file.getAbsolutePath(), e);
-			}
-			System.exit(-1);
-		}
-	}
 
 	/**
 	 * 判断是否重复运行
 	 */
 	@PreLoadMethod(2)
 	private static void checkDuplicateRun() {
-		CheckDuplicateRun.check();
+		try {
+			Class<?> appClass = JpomApplication.getAppClass();
+			String pid = String.valueOf(JpomManifest.getInstance().getPid());
+			Integer mainClassPid = JvmUtil.findMainClassPid(appClass.getName());
+			if (mainClassPid == null || pid.equals(ObjectUtil.toString(mainClassPid))) {
+				return;
+			}
+			DefaultSystemLog.getLog().warn("The Jpom program recommends that only one corresponding program be run on a machine：" + JpomApplication.getAppType() + "  pid:" + mainClassPid);
+		} catch (Exception e) {
+			DefaultSystemLog.getLog().error("检查异常", e);
+		}
 	}
 
 	@PreLoadMethod(3)
@@ -101,10 +113,10 @@ public class CheckPath {
 			FileUtil.del(file);
 		} catch (Exception e) {
 			// Try again  jzy 2021-07-31
-			DefaultSystemLog.getLog().warn("尝试删除临时文件夹失败,尝试处理只读权限：{}", e.getMessage());
+			DefaultSystemLog.getLog().warn("Attempt to delete temporary folder failed, try to handle read-only permission：{}", e.getMessage());
 			List<File> files = FileUtil.loopFiles(file);
 			long count = files.stream().map(file12 -> file12.setWritable(true)).filter(aBoolean -> aBoolean).count();
-			DefaultSystemLog.getLog().warn("临时文件夹累计文件数：{},处理成功数：{}", CollUtil.size(files), count);
+			DefaultSystemLog.getLog().warn("Cumulative number of files in temporary folder: {}, number of successful processing：{}", CollUtil.size(files), count);
 			try {
 				FileUtil.del(file.toPath());
 			} catch (Exception e1) {

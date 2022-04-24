@@ -1,26 +1,55 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.controller.node;
 
-import cn.hutool.extra.servlet.ServletUtil;
 import cn.jiangzeyin.common.JsonMessage;
+import cn.jiangzeyin.common.validator.ValidatorItem;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
 import io.jpom.common.BaseServerController;
-import io.jpom.common.interceptor.OptLog;
+import io.jpom.common.forward.NodeForward;
+import io.jpom.common.forward.NodeUrl;
+import io.jpom.model.PageResultDto;
 import io.jpom.model.data.NodeModel;
-import io.jpom.model.log.UserOperateLogV1;
-import io.jpom.plugin.ClassFeature;
-import io.jpom.plugin.Feature;
-import io.jpom.plugin.MethodFeature;
+import io.jpom.model.node.ProjectInfoCacheModel;
+import io.jpom.model.node.ScriptCacheModel;
+import io.jpom.permission.ClassFeature;
+import io.jpom.permission.Feature;
+import io.jpom.permission.MethodFeature;
+import io.jpom.permission.SystemPermission;
 import io.jpom.service.dblog.BuildInfoService;
 import io.jpom.service.monitor.MonitorService;
 import io.jpom.service.node.OutGivingServer;
-import io.jpom.service.node.ssh.SshService;
-import io.jpom.service.user.UserService;
+import io.jpom.service.node.ProjectInfoCacheService;
+import io.jpom.service.node.script.NodeScriptExecuteLogServer;
+import io.jpom.service.node.script.NodeScriptServer;
+import io.jpom.service.stat.NodeStatService;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.util.Assert;
+import org.springframework.web.bind.annotation.*;
 
-import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
  * 节点管理
@@ -28,55 +57,91 @@ import javax.annotation.Resource;
  * @author jiangzeyin
  * @date 2019/4/16
  */
-@Controller
+@RestController
 @RequestMapping(value = "/node")
 @Feature(cls = ClassFeature.NODE)
 public class NodeEditController extends BaseServerController {
 
-    @Resource
-    private UserService userService;
-    @Resource
-    private OutGivingServer outGivingServer;
-    @Resource
-    private MonitorService monitorService;
-    @Resource
-    private BuildInfoService buildService;
-    @Resource
-    private SshService sshService;
+    private final OutGivingServer outGivingServer;
+    private final MonitorService monitorService;
+    private final BuildInfoService buildService;
+    private final ProjectInfoCacheService projectInfoCacheService;
+    private final NodeScriptServer nodeScriptServer;
+    private final NodeStatService nodeStatService;
+    private final NodeScriptExecuteLogServer nodeScriptExecuteLogServer;
 
-//    @RequestMapping(value = "edit.html", method = RequestMethod.GET, produces = MediaType.TEXT_HTML_VALUE)
-//    @Feature(method = MethodFeature.EDIT)
-//    public String edit(String id) {
-//        setAttribute("type", "add");
-//        if (StrUtil.isNotEmpty(id)) {
-//            NodeModel nodeModel = nodeService.getItem(id);
-//            if (nodeModel != null) {
-//                setAttribute("item", nodeModel);
-//                setAttribute("type", "edit");
-//            }
-//        }
-//        // group
-//        HashSet<String> allGroup = nodeService.getAllGroup();
-//        setAttribute("groups", allGroup);
-//        JSONArray sshList = sshService.listSelect(id);
-//        setAttribute("sshList", sshList);
-//        //监控周期
-//        JSONArray cycleArray = Cycle.getAllJSONArray();
-//        setAttribute("cycleArray", cycleArray);
-//        return "node/edit";
-//    }
+    public NodeEditController(OutGivingServer outGivingServer,
+                              MonitorService monitorService,
+                              BuildInfoService buildService,
+                              ProjectInfoCacheService projectInfoCacheService,
+                              NodeScriptServer nodeScriptServer,
+                              NodeStatService nodeStatService,
+                              NodeScriptExecuteLogServer nodeScriptExecuteLogServer) {
+        this.outGivingServer = outGivingServer;
+        this.monitorService = monitorService;
+        this.buildService = buildService;
+        this.projectInfoCacheService = projectInfoCacheService;
+        this.nodeScriptServer = nodeScriptServer;
+        this.nodeStatService = nodeStatService;
+        this.nodeScriptExecuteLogServer = nodeScriptExecuteLogServer;
+    }
 
-    @RequestMapping(value = "save.json", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-    @OptLog(UserOperateLogV1.OptType.EditNode)
-    @ResponseBody
+
+    @PostMapping(value = "list_data.json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.LIST)
+    public String listJson() {
+        PageResultDto<NodeModel> nodeModelPageResultDto = nodeService.listPage(getRequest());
+        return JsonMessage.getString(200, "", nodeModelPageResultDto);
+    }
+
+    @GetMapping(value = "list_data_all.json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.LIST)
+    public String listDataAll() {
+        List<NodeModel> list = nodeService.listByWorkspace(getRequest());
+        return JsonMessage.getString(200, "", list);
+    }
+
+    @GetMapping(value = "list_data_by_workspace_id.json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.LIST)
+    public String listDataAll(@ValidatorItem String workspaceId) {
+        nodeService.checkUserWorkspace(workspaceId);
+        NodeModel nodeModel = new NodeModel();
+        nodeModel.setWorkspaceId(workspaceId);
+        List<NodeModel> list = nodeService.listByBean(nodeModel);
+        return JsonMessage.getString(200, "", list);
+    }
+
+    /**
+     * 查询所有的分组
+     *
+     * @return list
+     */
+    @GetMapping(value = "list_group_all.json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.LIST)
+    public String listGroupAll() {
+        List<String> listGroup = nodeService.listGroup(getRequest());
+        return JsonMessage.getString(200, "", listGroup);
+    }
+
+    @RequestMapping(value = "node_status", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.LIST)
+    public String nodeStatus() {
+        long timeMillis = System.currentTimeMillis();
+        NodeModel node = getNode();
+        JSONObject jsonObject = NodeForward.requestData(node, NodeUrl.Status, getRequest(), JSONObject.class);
+        Assert.notNull(jsonObject, "获取信息失败");
+        JSONArray jsonArray = new JSONArray();
+        jsonObject.put("timeOut", System.currentTimeMillis() - timeMillis);
+        jsonObject.put("nodeId", node.getId());
+        jsonArray.add(jsonObject);
+        return JsonMessage.getString(200, "", jsonArray);
+    }
+
+    @PostMapping(value = "save.json", produces = MediaType.APPLICATION_JSON_VALUE)
     @Feature(method = MethodFeature.EDIT)
-    public String save(String type) {
-        NodeModel model = ServletUtil.toBean(getRequest(), NodeModel.class, true);
-        if ("add".equalsIgnoreCase(type)) {
-            return nodeService.addNode(model, getRequest());
-        } else {
-            return nodeService.updateNode(model);
-        }
+    public String save() {
+        nodeService.update(getRequest(), false);
+        return JsonMessage.getString(200, "操作成功");
     }
 
 
@@ -86,30 +151,77 @@ public class NodeEditController extends BaseServerController {
      * @param id 节点id
      * @return json
      */
-    @RequestMapping(value = "del.json", method = RequestMethod.POST, produces = MediaType.APPLICATION_JSON_VALUE)
-    @OptLog(UserOperateLogV1.OptType.DelNode)
-    @ResponseBody
+    @PostMapping(value = "del.json", produces = MediaType.APPLICATION_JSON_VALUE)
     @Feature(method = MethodFeature.DEL)
-    public String del(String id) {
+    public String del(@ValidatorItem String id) {
+        HttpServletRequest request = getRequest();
+        this.checkDataBind(id, request);
+        //
+        {
+            ProjectInfoCacheModel projectInfoCacheModel = new ProjectInfoCacheModel();
+            projectInfoCacheModel.setNodeId(id);
+            projectInfoCacheModel.setWorkspaceId(projectInfoCacheService.getCheckUserWorkspace(request));
+            boolean exists = projectInfoCacheService.exists(projectInfoCacheModel);
+            Assert.state(!exists, "该节点下还存在项目，不能删除");
+        }
+        //
+        {
+            ScriptCacheModel scriptCacheModel = new ScriptCacheModel();
+            scriptCacheModel.setNodeId(id);
+            scriptCacheModel.setWorkspaceId(nodeScriptServer.getCheckUserWorkspace(request));
+            boolean exists = nodeScriptServer.exists(scriptCacheModel);
+            Assert.state(!exists, "该节点下还存在脚本模版，不能删除");
+        }
+        //
+        this.delNodeData(id, request);
+        return JsonMessage.getString(200, "操作成功");
+    }
+
+    private void checkDataBind(String id, HttpServletRequest request) {
         //  判断分发
-        if (outGivingServer.checkNode(id)) {
-            return JsonMessage.getString(400, "该节点存在分发项目，不能删除");
-        }
+        boolean checkNode = outGivingServer.checkNode(id, request);
+        Assert.state(!checkNode, "该节点存在分发项目，不能删除");
         // 监控
-        if (monitorService.checkNode(id)) {
-            return JsonMessage.getString(400, "该节点存在监控项，不能删除");
+        boolean checkNode1 = monitorService.checkNode(id);
+        Assert.state(!checkNode1, "该节点存在监控项，不能删除");
+        boolean checkNode2 = buildService.checkNode(id, request);
+        Assert.state(!checkNode2, "该节点存在构建项，不能删除");
+    }
+
+    private void delNodeData(String id, HttpServletRequest request) {
+        //
+        int i = nodeService.delByKey(id, request);
+        if (i > 0) {
+            // 删除节点统计数据
+            nodeStatService.delByKey(id);
+            //
+            nodeScriptExecuteLogServer.delCache(id, request);
         }
-        if (buildService.checkNode(id)) {
-            return JsonMessage.getString(400, "该节点存在构建项，不能删除");
-        }
-        nodeService.deleteItem(id);
-        // 删除授权
-        //        List<UserModel> list = userService.list();
-        //        if (list != null) {
-        //            list.forEach(userModel -> {
-        //                userService.updateItem(userModel);
-        //            });
-        //        }
+    }
+
+    /**
+     * 解绑
+     *
+     * @param id 分发id
+     * @return json
+     */
+    @GetMapping(value = "unbind.json", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.DEL)
+    public String unbind(String id) {
+        HttpServletRequest request = getRequest();
+        this.checkDataBind(id, request);
+        //
+        projectInfoCacheService.delCache(id, request);
+        nodeScriptServer.delCache(id, request);
+        this.delNodeData(id, request);
+        return JsonMessage.getString(200, "操作成功");
+    }
+
+    @GetMapping(value = "un_lock_workspace", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Feature(method = MethodFeature.EDIT)
+    @SystemPermission(superUser = true)
+    public String unLockWorkspace(@ValidatorItem String id, @ValidatorItem String workspaceId) {
+        nodeService.unLock(id, workspaceId);
         return JsonMessage.getString(200, "操作成功");
     }
 }

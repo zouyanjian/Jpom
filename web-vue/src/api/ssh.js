@@ -1,19 +1,32 @@
 import axios from "./config";
 
 // ssh 列表
-export function getSshList() {
+export function getSshList(params) {
   return axios({
     url: "/node/ssh/list_data.json",
     method: "post",
+    data: params,
+  });
+}
+
+// 检查 ssh 是否安装 插件端
+export function getSshCheckAgent(params) {
+  return axios({
+    url: "/node/ssh/check_agent.json",
+    method: "get",
+    params: params,
+    timeout: 0,
+    headers: {
+      loading: "no",
+    },
   });
 }
 
 // 根据 nodeId 查询列表
-export function getSshListByNodeId(nodeId) {
+export function getSshListAll() {
   return axios({
-    url: "/node/ssh/list_by_node_id",
-    method: "post",
-    data: { nodeId },
+    url: "/node/ssh/list_data_all.json",
+    method: "get",
   });
 }
 
@@ -77,6 +90,35 @@ export function deleteSsh(id) {
 export function installAgentNode(formData) {
   return axios({
     url: "/node/ssh/installAgentSubmit.json",
+    headers: {
+      // "Content-Type": "multipart/form-data;charset=UTF-8",
+    },
+    method: "post",
+    // 0 表示无超时时间
+    timeout: 0,
+    data: formData,
+  });
+}
+/**
+ *  获取插件端信息
+ * @returns json
+ */
+export function getAgent() {
+  return axios({
+    url: "/node/ssh/get_agent.json",
+    headers: {},
+    method: "get",
+  });
+}
+
+/**
+ * 上传插件包
+ * @param {form} formData
+ * @returns
+ */
+export function uploadAgent(formData) {
+  return axios({
+    url: "/node/ssh/upload_agent.json",
     headers: {
       "Content-Type": "multipart/form-data;charset=UTF-8",
     },
@@ -179,6 +221,19 @@ export function readFile(params) {
 export function updateFileData(params) {
   return axios({
     url: "/node/ssh/update_file_data.json",
+    method: "post",
+    data: params,
+  });
+}
+
+/**
+ * 新增目录  或文件
+ * @param params
+ * @returns {id, path, name,unFolder} params x
+ */
+export function newFileFolder(params) {
+  return axios({
+    url: "/node/ssh/new_file_folder.json",
     method: "post",
     data: params,
   });

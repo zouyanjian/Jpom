@@ -1,9 +1,36 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.model.data;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.CharsetUtil;
+import cn.hutool.core.util.EnumUtil;
 import cn.hutool.core.util.StrUtil;
-import io.jpom.model.BaseModel;
+import com.alibaba.fastjson.JSONArray;
+import io.jpom.model.BaseWorkspaceModel;
+import io.jpom.service.h2db.TableName;
+import io.jpom.util.StringUtil;
+import lombok.Data;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -14,203 +41,133 @@ import java.util.List;
  * @author bwcx_jzy
  * @date 2019/8/9
  */
-public class SshModel extends BaseModel {
-	private String host;
-	private int port;
-	private String user;
-	private String password;
-	/**
-	 * 编码格式
-	 */
-	private String charset;
+@TableName(value = "SSH_INFO", name = "SSH 信息")
+@Data
+public class SshModel extends BaseWorkspaceModel {
 
-	/**
-	 * 文件目录
-	 */
-	private List<String> fileDirs;
+    private String name;
+    private String host;
+    private Integer port;
+    private String user;
+    private String password;
+    /**
+     * 编码格式
+     */
+    private String charset;
 
-	/**
-	 * ssh 私钥
-	 */
-	private String privateKey;
+    /**
+     * 文件目录
+     */
+    private String fileDirs;
 
-	private ConnectType connectType;
+    /**
+     * ssh 私钥
+     */
+    private String privateKey;
 
-	/**
-	 * 临时缓存model
-	 */
-	private BaseModel nodeModel;
+    private String connectType;
 
-	/**
-	 * 不允许执行的命令
-	 */
-	private String notAllowedCommand;
+    /**
+     * 不允许执行的命令
+     */
+    private String notAllowedCommand;
 
-	/**
-	 * 运行编辑的后缀文件
-	 */
-	private List<String> allowEditSuffix;
+    /**
+     * 允许编辑的后缀文件
+     */
+    private String allowEditSuffix;
 
-	public String getNotAllowedCommand() {
-		return notAllowedCommand;
-	}
 
-	public void setNotAllowedCommand(String notAllowedCommand) {
-		this.notAllowedCommand = notAllowedCommand;
-	}
+    public ConnectType connectType() {
+        return EnumUtil.fromString(ConnectType.class, this.connectType, ConnectType.PASS);
+    }
 
-	public ConnectType getConnectType() {
-		if (connectType == null) {
-			return ConnectType.PASS;
-		}
-		return connectType;
-	}
+    public List<String> fileDirs() {
+        return StringUtil.jsonConvertArray(this.fileDirs, String.class);
+    }
 
-	public void setConnectType(ConnectType connectType) {
-		this.connectType = connectType;
-	}
+    public void fileDirs(List<String> fileDirs) {
+        if (fileDirs != null) {
+            for (int i = fileDirs.size() - 1; i >= 0; i--) {
+                String s = fileDirs.get(i);
+                fileDirs.set(i, FileUtil.normalize(s));
+            }
+            this.fileDirs = JSONArray.toJSONString(fileDirs);
+        } else {
+            this.fileDirs = null;
+        }
+    }
 
-	public String getPrivateKey() {
-		return privateKey;
-	}
+    public byte[] password() {
+        byte[] pas = null;
+        if (StrUtil.isNotEmpty(this.getPassword())) {
+            pas = this.getPassword().getBytes();
+        }
+        return pas;
+    }
 
-	public void setPrivateKey(String privateKey) {
-		this.privateKey = privateKey;
-	}
+    public Charset getCharsetT() {
+        Charset charset;
+        try {
+            charset = Charset.forName(this.getCharset());
+        } catch (Exception e) {
+            charset = CharsetUtil.CHARSET_UTF_8;
+        }
+        return charset;
+    }
 
-	public BaseModel getNodeModel() {
-		return nodeModel;
-	}
+    public List<String> allowEditSuffix() {
+        return StringUtil.jsonConvertArray(this.allowEditSuffix, String.class);
+    }
 
-	public void setNodeModel(BaseModel nodeModel) {
-		if (nodeModel == null) {
-			return;
-		}
-		this.nodeModel = new BaseModel() {
-			@Override
-			public String getName() {
-				return nodeModel.getName();
-			}
+    public void allowEditSuffix(List<String> allowEditSuffix) {
+        if (allowEditSuffix == null) {
+            this.allowEditSuffix = null;
+        } else {
+            this.allowEditSuffix = JSONArray.toJSONString(allowEditSuffix);
+        }
+    }
 
-			@Override
-			public String getId() {
-				return nodeModel.getId();
-			}
-		};
-	}
+    /**
+     * 检查是否包含禁止命令
+     *
+     * @param sshItem   实体
+     * @param inputItem 输入的命令
+     * @return false 存在禁止输入的命令
+     */
+    public static boolean checkInputItem(SshModel sshItem, String inputItem) {
+        // 检查禁止执行的命令
+        String notAllowedCommand = StrUtil.emptyToDefault(sshItem.getNotAllowedCommand(), StrUtil.EMPTY).toLowerCase();
+        if (StrUtil.isEmpty(notAllowedCommand)) {
+            return true;
+        }
+        List<String> split = StrUtil.splitTrim(notAllowedCommand, StrUtil.COMMA);
+        inputItem = inputItem.toLowerCase();
+        List<String> commands = StrUtil.splitTrim(inputItem, StrUtil.CR);
+        commands.addAll(StrUtil.split(inputItem, "&"));
+        for (String s : split) {
+            //
+            boolean anyMatch = commands.stream().anyMatch(item -> StrUtil.startWithAny(item, s + StrUtil.SPACE, ("&" + s + StrUtil.SPACE), StrUtil.SPACE + s + StrUtil.SPACE));
+            if (anyMatch) {
+                return false;
+            }
+            //
+            anyMatch = commands.stream().anyMatch(item -> StrUtil.equals(item, s));
+            if (anyMatch) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-	public List<String> getFileDirs() {
-		return fileDirs;
-	}
-
-	public void setFileDirs(List<String> fileDirs) {
-		if (fileDirs != null) {
-			for (int i = fileDirs.size() - 1; i >= 0; i--) {
-				String s = fileDirs.get(i);
-				fileDirs.set(i, FileUtil.normalize(s));
-			}
-		}
-		this.fileDirs = fileDirs;
-	}
-
-	public String getHost() {
-		return host;
-	}
-
-	public void setHost(String host) {
-		this.host = host;
-	}
-
-	public int getPort() {
-		return port;
-	}
-
-	public void setPort(int port) {
-		this.port = port;
-	}
-
-	public String getUser() {
-		return user;
-	}
-
-	public void setUser(String user) {
-		this.user = user;
-	}
-
-	public String getPassword() {
-		return password;
-	}
-
-	public void setPassword(String password) {
-		this.password = password;
-	}
-
-	public String getCharset() {
-		return charset;
-	}
-
-	public void setCharset(String charset) {
-		this.charset = charset;
-	}
-
-	public Charset getCharsetT() {
-		Charset charset;
-		try {
-			charset = Charset.forName(this.getCharset());
-		} catch (Exception e) {
-			charset = CharsetUtil.CHARSET_UTF_8;
-		}
-		return charset;
-	}
-
-	public List<String> getAllowEditSuffix() {
-		return allowEditSuffix;
-	}
-
-	public void setAllowEditSuffix(List<String> allowEditSuffix) {
-		this.allowEditSuffix = allowEditSuffix;
-	}
-
-	/**
-	 * 检查是否包含禁止命令
-	 *
-	 * @param sshItem   实体
-	 * @param inputItem 输入的命令
-	 * @return false 存在禁止输入的命令
-	 */
-	public static boolean checkInputItem(SshModel sshItem, String inputItem) {
-		// 检查禁止执行的命令
-		String notAllowedCommand = StrUtil.emptyToDefault(sshItem.getNotAllowedCommand(), StrUtil.EMPTY).toLowerCase();
-		if (StrUtil.isEmpty(notAllowedCommand)) {
-			return true;
-		}
-		List<String> split = StrUtil.split(notAllowedCommand, StrUtil.COMMA);
-		inputItem = inputItem.toLowerCase();
-		List<String> commands = StrUtil.split(inputItem, StrUtil.CR);
-		commands.addAll(StrUtil.split(inputItem, "&"));
-		for (String s : split) {
-			//
-			boolean anyMatch = commands.stream().anyMatch(item -> StrUtil.startWithAny(item, s + StrUtil.SPACE, ("&" + s + StrUtil.SPACE), StrUtil.SPACE + s + StrUtil.SPACE));
-			if (anyMatch) {
-				return false;
-			}
-			//
-			anyMatch = commands.stream().anyMatch(item -> StrUtil.equals(item, s));
-			if (anyMatch) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	public enum ConnectType {
-		/**
-		 * 账号密码
-		 */
-		PASS,
-		/**
-		 * 密钥
-		 */
-		PUBKEY
-	}
+    public enum ConnectType {
+        /**
+         * 账号密码
+         */
+        PASS,
+        /**
+         * 密钥
+         */
+        PUBKEY
+    }
 }

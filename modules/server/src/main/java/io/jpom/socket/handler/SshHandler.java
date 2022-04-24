@@ -1,6 +1,29 @@
+/*
+ * The MIT License (MIT)
+ *
+ * Copyright (c) 2019 Code Technology Studio
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 package io.jpom.socket.handler;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.convert.Convert;
 import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.core.util.StrUtil;
@@ -10,16 +33,18 @@ import cn.jiangzeyin.common.DefaultSystemLog;
 import cn.jiangzeyin.common.spring.SpringUtil;
 import com.alibaba.fastjson.JSONObject;
 import com.alibaba.fastjson.JSONValidator;
-import com.jcraft.jsch.Channel;
+import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 import io.jpom.model.data.SshModel;
 import io.jpom.model.data.UserModel;
+import io.jpom.permission.ClassFeature;
+import io.jpom.permission.Feature;
+import io.jpom.permission.MethodFeature;
 import io.jpom.service.dblog.SshTerminalExecuteLogService;
 import io.jpom.service.node.ssh.SshService;
-import io.jpom.socket.BaseHandler;
+import io.jpom.service.user.UserBindWorkspaceService;
 import org.springframework.http.HttpHeaders;
-import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -37,46 +62,28 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author bwcx_jzy
  * @date 2019/8/9
  */
-public class SshHandler extends BaseHandler {
+@Feature(cls = ClassFeature.SSH_TERMINAL, method = MethodFeature.EXECUTE)
+public class SshHandler extends BaseTerminalHandler {
 
 	private static final ConcurrentHashMap<String, HandlerItem> HANDLER_ITEM_CONCURRENT_HASH_MAP = new ConcurrentHashMap<>();
-	private SshTerminalExecuteLogService sshTerminalExecuteLogService;
+	private static SshTerminalExecuteLogService sshTerminalExecuteLogService;
+	private static UserBindWorkspaceService userBindWorkspaceService;
+
+	private static void init() {
+		if (sshTerminalExecuteLogService == null) {
+			sshTerminalExecuteLogService = SpringUtil.getBean(SshTerminalExecuteLogService.class);
+		}
+		if (userBindWorkspaceService == null) {
+			userBindWorkspaceService = SpringUtil.getBean(UserBindWorkspaceService.class);
+		}
+	}
 
 	@Override
-	public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-		SshModel sshItem = (SshModel) session.getAttributes().get("sshItem");
-		//Map<String, String[]> parameterMap = (Map<String, String[]>) session.getAttributes().get("parameterMap");
-//		String[] fileDirAlls;
-//		//判断url是何操作请求
-//		if (parameterMap.containsKey("tail")) {
-//			fileDirAlls = parameterMap.get("tail");
-//		} else if (parameterMap.containsKey("gz")) {
-//			fileDirAlls = parameterMap.get("gz");
-//		} else {
-//			fileDirAlls = parameterMap.get("zip");
-//		}
-//		//检查文件路径
-//		String fileDirAll = null;
-//		if (fileDirAlls != null && fileDirAlls.length > 0 && !StrUtil.isEmptyOrUndefined(fileDirAlls[0])) {
-//			fileDirAll = fileDirAlls[0];
-//			List<String> fileDirs = sshItem.getFileDirs();
-//			if (fileDirs == null) {
-//				sendBinary(session, "没有配置路径");
-//				return;
-//			}
-//			File file = FileUtil.file(fileDirAll);
-//			boolean find = false;
-//			for (String fileDir : fileDirs) {
-//				if (FileUtil.isSub(FileUtil.file(fileDir), file)) {
-//					find = true;
-//					break;
-//				}
-//			}
-//			if (!find) {
-//				sendBinary(session, "非法路径");
-//				return;
-//			}
-//		}
+	public void afterConnectionEstablishedImpl(WebSocketSession session) throws Exception {
+		Map<String, Object> attributes = session.getAttributes();
+		SshModel sshItem = (SshModel) attributes.get("dataItem");
+
+		super.logOpt(this.getClass(), attributes, attributes);
 		//
 		HandlerItem handlerItem;
 		try {
@@ -92,37 +99,7 @@ public class SshHandler extends BaseHandler {
 		HANDLER_ITEM_CONCURRENT_HASH_MAP.put(session.getId(), handlerItem);
 		//
 		Thread.sleep(1000);
-//		//截取当前操作文件父路径
-//		String fileLocalPath = null;
-//		if (fileDirAll != null && fileDirAll.lastIndexOf("/") > -1) {
-//			fileLocalPath = fileDirAll.substring(0, fileDirAll.lastIndexOf("/"));
-//		}
-//		if (fileDirAll == null) {
-//			this.call(session, StrUtil.CR);
-//		} else if (parameterMap.containsKey("tail")) {
-//			// 查看文件
-//			fileDirAll = FileUtil.normalize(fileDirAll);
-//			this.call(session, StrUtil.format("tail -f {}", fileDirAll));
-//			this.call(session, StrUtil.CR);
-//		} else if (parameterMap.containsKey("zip")) {
-//			//解压zip
-//			fileDirAll = FileUtil.normalize(fileDirAll);
-//			this.call(session, StrUtil.format("unzip -o {} -d " + "{}", fileDirAll, fileLocalPath));
-//			this.call(session, StrUtil.CR);
-//		} else {
-//			//解压 tar和tar.gz
-//			fileDirAll = FileUtil.normalize(fileDirAll);
-//			this.call(session, StrUtil.format("tar -xzvf {} -C " + "{}", fileDirAll, fileLocalPath));
-//			this.call(session, StrUtil.CR);
-//		}
 	}
-
-//	private void call(WebSocketSession session, String msg) throws Exception {
-//		JSONObject first = new JSONObject();
-//		first.put("data", msg);
-//		// 触发消息
-//		//this.handleTextMessage(session, new TextMessage(first.toJSONString()));
-//	}
 
 	@Override
 	protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
@@ -140,17 +117,28 @@ public class SshHandler extends BaseHandler {
 				// 心跳消息不转发
 				return;
 			}
+			if (StrUtil.equals(data, "resize")) {
+				// 缓存区大小
+				handlerItem.resize(jsonObject);
+				return;
+			}
 		}
+		init();
+		Map<String, Object> attributes = session.getAttributes();
+		UserModel userInfo = (UserModel) attributes.get("userInfo");
+		// 判断是没有任何限制
+		String workspaceId = handlerItem.sshItem.getWorkspaceId();
+		boolean sshCommandNotLimited = userBindWorkspaceService.exists(userInfo.getId(), workspaceId + UserBindWorkspaceService.SSH_COMMAND_NOT_LIMITED);
 		try {
-			this.sendCommand(handlerItem, payload);
+			this.sendCommand(handlerItem, payload, userInfo, sshCommandNotLimited);
 		} catch (Exception e) {
 			sendBinary(session, "Failure:" + e.getMessage());
 			DefaultSystemLog.getLog().error("执行命令异常", e);
 		}
 	}
 
-	private void sendCommand(HandlerItem handlerItem, String data) throws Exception {
-		if (handlerItem.checkInput(data)) {
+	private void sendCommand(HandlerItem handlerItem, String data, UserModel userInfo, boolean sshCommandNotLimited) throws Exception {
+		if (handlerItem.checkInput(data, userInfo, sshCommandNotLimited)) {
 			handlerItem.outputStream.write(data.getBytes());
 		} else {
 			handlerItem.outputStream.write("没有执行相关命令权限".getBytes());
@@ -168,11 +156,8 @@ public class SshHandler extends BaseHandler {
 	 * @param refuse  是否拒绝
 	 */
 	private void logCommands(WebSocketSession session, String command, boolean refuse) {
-		if (sshTerminalExecuteLogService == null) {
-			sshTerminalExecuteLogService = SpringUtil.getBean(SshTerminalExecuteLogService.class);
-		}
-		List<String> split = StrUtil.split(command, StrUtil.CR);
-		// 最后一个是否为回车
+		List<String> split = StrUtil.splitTrim(command, StrUtil.CR);
+		// 最后一个是否为回车, 最后一个不是回车表示还未提交，还在缓存去待确认
 		boolean all = StrUtil.endWith(command, StrUtil.CR);
 		int size = split.size();
 		split = CollUtil.sub(split, 0, all ? size : size - 1);
@@ -184,7 +169,7 @@ public class SshHandler extends BaseHandler {
 		UserModel userInfo = (UserModel) attributes.get("userInfo");
 		String ip = (String) attributes.get("ip");
 		String userAgent = (String) attributes.get(HttpHeaders.USER_AGENT);
-		SshModel sshItem = (SshModel) attributes.get("sshItem");
+		SshModel sshItem = (SshModel) attributes.get("dataItem");
 		//
 		sshTerminalExecuteLogService.batch(userInfo, sshItem, ip, userAgent, refuse, split);
 	}
@@ -194,15 +179,15 @@ public class SshHandler extends BaseHandler {
 		private final InputStream inputStream;
 		private final OutputStream outputStream;
 		private final Session openSession;
-		private final Channel channel;
+		private final ChannelShell channel;
 		private final SshModel sshItem;
 		private final StringBuilder nowLineInput = new StringBuilder();
 
 		HandlerItem(WebSocketSession session, SshModel sshItem) throws IOException {
 			this.session = session;
 			this.sshItem = sshItem;
-			this.openSession = SshService.getSession(sshItem);
-			this.channel = JschUtil.createChannel(openSession, ChannelType.SHELL);
+			this.openSession = SshService.getSessionByModel(sshItem);
+			this.channel = (ChannelShell) JschUtil.createChannel(openSession, ChannelType.SHELL);
 			this.inputStream = channel.getInputStream();
 			this.outputStream = channel.getOutputStream();
 		}
@@ -210,6 +195,19 @@ public class SshHandler extends BaseHandler {
 		void startRead() throws JSchException {
 			this.channel.connect();
 			ThreadUtil.execute(this);
+		}
+
+		/**
+		 * 调整 缓存区大小
+		 *
+		 * @param jsonObject 参数
+		 */
+		private void resize(JSONObject jsonObject) {
+			Integer rows = Convert.toInt(jsonObject.getString("rows"), 10);
+			Integer cols = Convert.toInt(jsonObject.getString("cols"), 10);
+			Integer wp = Convert.toInt(jsonObject.getString("wp"), 10);
+			Integer hp = Convert.toInt(jsonObject.getString("hp"), 10);
+			this.channel.setPtySize(cols, rows, wp, hp);
 		}
 
 		/**
@@ -232,9 +230,19 @@ public class SshHandler extends BaseHandler {
 			return nowLineInput.toString();
 		}
 
-		public boolean checkInput(String msg) {
+		/**
+		 * 检查输入是否包含禁止命令，记录执行记录
+		 *
+		 * @param msg                  输入
+		 * @param userInfo             用户
+		 * @param sshCommandNotLimited 是否解除限制
+		 * @return true 没有任何限制
+		 */
+		public boolean checkInput(String msg, UserModel userInfo, boolean sshCommandNotLimited) {
 			String allCommand = this.append(msg);
 			boolean refuse;
+			// 超级管理员不限制,有权限都不限制
+			boolean systemUser = userInfo.isSuperSystemUser() || sshCommandNotLimited;
 			if (StrUtil.equalsAny(msg, StrUtil.CR, StrUtil.TAB)) {
 				String join = nowLineInput.toString();
 				if (StrUtil.equals(msg, StrUtil.CR)) {
@@ -247,7 +255,7 @@ public class SshHandler extends BaseHandler {
 			}
 			// 执行命令行记录
 			logCommands(session, allCommand, refuse);
-			return refuse;
+			return systemUser || refuse;
 		}
 
 
@@ -281,21 +289,5 @@ public class SshHandler extends BaseHandler {
 		}
 		IoUtil.close(session);
 		HANDLER_ITEM_CONCURRENT_HASH_MAP.remove(session.getId());
-	}
-
-	private static void sendBinary(WebSocketSession session, String msg) {
-		if (!session.isOpen()) {
-			// 会话关闭不能发送消息 @author jzy 21-08-04
-			DefaultSystemLog.getLog().warn("回话已经关闭啦，不能发送消息：{}", msg);
-			return;
-		}
-		synchronized (session.getId()) {
-			BinaryMessage byteBuffer = new BinaryMessage(msg.getBytes());
-			try {
-				session.sendMessage(byteBuffer);
-			} catch (IOException e) {
-				DefaultSystemLog.getLog().error("发送消息失败:" + msg, e);
-			}
-		}
 	}
 }
